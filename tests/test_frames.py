@@ -69,7 +69,7 @@ def test_unit_conversion_boundary():
 
 
 def test_resolve_caching_behavior() -> None:
-    """AC1 & AC2: Verify caching and invalidation behavior."""
+    """AC1 & AC2: Verify caching and invalidation behavior with simplified keys."""
     mock_bodies = {
         "Sun": {"primary": None},
         "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
@@ -91,6 +91,15 @@ def test_resolve_caching_behavior() -> None:
                 initial_calls > 0
             ), "First call should trigger coordinate calculations"
 
+            # Verify cache key format (Internal inspection)
+            # This is expected to FAIL against unrefactored code (which uses tuples)
+            from src.frames import _FRAME_CACHE
+
+            assert "Moon" in _FRAME_CACHE, "Cache should contain 'Moon' as a string key"
+            assert isinstance(
+                list(_FRAME_CACHE.keys())[0], str
+            ), "Cache keys must be strings (body_name), not tuples"
+
             # Second call at same time - should be cached
             resolve_absolute_position("Moon", t_initial)
             # AC1: call_count should not increase
@@ -106,13 +115,8 @@ def test_resolve_caching_behavior() -> None:
             ), f"AC2: Different time t={t_new} should invalidate cache"
 
 
-
-
 def test_performance_benchmark() -> None:
-    """Verify 1000 recursive lookups take < 1ms with caching active.
-
-    Expected to FAIL until caching is implemented in src/frames.py.
-    """
+    """Verify 1000 recursive lookups take < 1ms with caching active."""
     # Use a deep hierarchy if possible, but Moon->Earth->Sun is 2 levels deep.
     # 1000 calls to a 2-level recursion without caching might already be fast,
     # but caching should make it significantly faster.
@@ -170,6 +174,16 @@ def test_intermediate_node_caching() -> None:
             # Resolve Moon. This should recursively resolve Earth and Sun.
             resolve_absolute_position("Moon", t)
 
+            # Verify internal cache state for intermediate nodes
+            from src.frames import _FRAME_CACHE
+
+            assert (
+                "Earth" in _FRAME_CACHE
+            ), "Parent 'Earth' should be cached as a string key"
+            assert (
+                "Moon" in _FRAME_CACHE
+            ), "Child 'Moon' should be cached as a string key"
+
             # Earth should now be in the cache.
             # We verify this by calling resolve_absolute_position("Earth", t)
             # and checking that mock_coords was NOT called again.
@@ -182,6 +196,36 @@ def test_intermediate_node_caching() -> None:
             ), "Earth should have been cached during Moon resolution"
 
 
+def test_cache_clearing_on_time_reversion() -> None:
+    """Verify that returning to a previous simulation time results in a cache miss."""
+    mock_bodies = {
+        "Sun": {"primary": None},
+        "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
+    }
+
+    t1 = 0.0
+    t2 = 1.0
+
+    with mock.patch("src.frames.BODIES", mock_bodies):
+        with mock.patch("src.frames.get_heliocentric_coords") as mock_coords:
+            mock_coords.return_value = Vec2(1.0, 0.0)
+
+            # Call at t1
+            resolve_absolute_position("Earth", t1)
+            calls_at_t1 = mock_coords.call_count
+
+            # Call at t2 (clears cache)
+            resolve_absolute_position("Earth", t2)
+            calls_at_t2 = mock_coords.call_count
+            assert calls_at_t2 > calls_at_t1
+
+            # Return to t1 (should be a miss because cache was cleared at t2)
+            resolve_absolute_position("Earth", t1)
+            assert (
+                mock_coords.call_count > calls_at_t2
+            ), "Returning to previous time should be a cache miss (cache was cleared)"
+
+
 def test_cache_initialization_edge_case() -> None:
     """Verify cache behavior at t=0.0 and transitions from None."""
     # _LAST_SIM_TIME starts as None. t=0.0 should trigger a clear and update.
@@ -189,6 +233,13 @@ def test_cache_initialization_edge_case() -> None:
         "Sun": {"primary": None},
         "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
     }
+
+    # Ensure we start with a clean state for this test
+    from src.frames import _FRAME_CACHE
+    import src.frames
+
+    _FRAME_CACHE.clear()
+    src.frames._LAST_SIM_TIME = None
 
     with mock.patch("src.frames.BODIES", mock_bodies):
         with mock.patch("src.frames.get_heliocentric_coords") as mock_coords:

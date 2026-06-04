@@ -8,7 +8,7 @@ orbital offsets and handling unit conversions.
 # CHANGELOG:
 # - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from src.vector import Vec2
 from src.bodies import BODIES
@@ -16,7 +16,7 @@ from src.constants import AU_TO_KM
 from src.orbital import get_heliocentric_coords
 
 # Module-level state (Internal)
-_FRAME_CACHE: dict[tuple[float, str], Vec2] = {}
+_FRAME_CACHE: dict[str, Vec2] = {}
 _LAST_SIM_TIME: float | None = None
 
 
@@ -68,9 +68,8 @@ def resolve_absolute_position(
         _LAST_SIM_TIME = t
 
     # 2. Cache Lookup
-    cache_key = (t, body_name)
-    if cache_key in _FRAME_CACHE:
-        return _FRAME_CACHE[cache_key]
+    if body_name in _FRAME_CACHE:
+        return _FRAME_CACHE[body_name]
 
     # 3. Initialize visited set
     if visited is None:
@@ -102,8 +101,6 @@ def resolve_absolute_position(
 
     # 8. Calculate Relative Position
     # Cast to satisfy mypy: body_data is FrameNode which matches get_heliocentric_coords
-    from typing import cast
-
     rel_pos = get_heliocentric_coords(cast(dict[str, Any], body_data), t)
 
     # 9. Unit Conversion (AU to KM)
@@ -114,5 +111,5 @@ def resolve_absolute_position(
 
     # 10. Composition and Storage
     result = parent_pos + rel_pos_km
-    _FRAME_CACHE[cache_key] = result
+    _FRAME_CACHE[body_name] = result
     return result
