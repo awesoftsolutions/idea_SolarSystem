@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+from src.bodies import BODIES
 from src.constants import SOLVER_TOLERANCE
 from src.orbital import (
     eccentric_to_true,
@@ -110,3 +111,141 @@ def test_solve_kepler_convergence_failure():
         with pytest.raises(RuntimeError, match="ERR-001"):
             # Halley at M=0.1 is unlikely to converge in 1 iteration
             solve_kepler(0.1, 0.967)
+
+
+def calculate_swept_area(
+    elements: dict[str, float], start_t: float, duration: float
+) -> float:
+    """Numerical integration of swept area over 2000 steps.
+
+    Uses the triangle area formula 0.5 * abs(x1*y2 - x2*y1) for each step.
+
+    Args:
+        elements: Orbital elements dictionary.
+        start_t: Start time of the interval.
+        duration: Duration of the interval.
+
+    Returns:
+        Total swept area.
+    """
+    total_area = 0.0
+    steps = 2000
+    dt = duration / steps
+
+    for i in range(steps):
+        t1 = start_t + i * dt
+        t2 = start_t + (i + 1) * dt
+
+        r1 = get_heliocentric_coords(elements, t1)
+        r2 = get_heliocentric_coords(elements, t2)
+
+        # 2D Cross product magnitude for triangle area
+        triangle_area = 0.5 * abs(r1.x * r2.y - r2.x * r1.y)
+        total_area += triangle_area
+
+    return total_area
+
+
+def test_kepler_second_law_functional():
+    """Verify Kepler's 2nd Law: Equal areas swept in equal time."""
+    interval_days = 30.0
+    interval_years = interval_days / 365.25
+
+    for name, data in BODIES.items():
+        if data.get("primary") != "Sun" or name == "Sun":
+            continue
+
+        # Area at perihelion (t=0)
+        area_perihelion = calculate_swept_area(data, 0.0, interval_years)
+
+        # Area at aphelion (t=T/2)
+        area_aphelion = calculate_swept_area(data, data["T"] / 2.0, interval_years)
+
+        # Tolerance: 1e-7 for planets, 1e-6 for comets (as per requirements)
+        tolerance = 1e-6 if data["e"] > 0.8 else 1e-7
+
+        assert area_perihelion == pytest.approx(area_aphelion, abs=tolerance), (
+            f"Kepler's 2nd Law failed for {name}: "
+            f"perihelion area {area_perihelion}, aphelion area {area_aphelion}"
+        )
+
+
+def test_kepler_third_law_functional():
+    """Verify Kepler's 3rd Law: T^2 / a^3 is constant for heliocentric bodies."""
+    ratios = {}
+
+    for name, data in BODIES.items():
+        if data.get("primary") == "Sun":
+            a = data["a"]
+            t = data["T"]
+            ratios[name] = (t * t) / (a * a * a)
+
+    # Use Mercury as the reference (as per requirements)
+    mercury_ratio = ratios["Mercury"]
+
+    for name, ratio in ratios.items():
+        # Ratios should match within 0.1% (Sprint 1 Task 4 Requirement)
+        # Note: J2000 reference data has slight variations due to planetary masses.
+        # High-precision data is required to meet this tolerance.
+        assert ratio == pytest.approx(mercury_ratio, rel=0.001), (
+            f"Kepler's 3rd Law failed for {name}: ratio {ratio}, "
+            f"expected approx {mercury_ratio}"
+        )
+
+
+def test_get_heliocentric_coords_large_t():
+    """Verify precision for very large simulation times."""
+    # Use Earth elements
+    elements = BODIES["Earth"]
+    period = elements["T"]
+
+    # Position at t=0
+    pos_start = get_heliocentric_coords(elements, 0.0)
+
+    # Position after 1 billion orbits (t = 10^9 * T)
+    # This should be identical to t=0 in a perfect periodic system.
+    large_t = 1_000_000_000.0 * period
+    pos_large = get_heliocentric_coords(elements, large_t)
+
+    assert pos_large.x == pytest.approx(
+        pos_start.x, abs=SOLVER_TOLERANCE
+    ), f"Precision loss at large t: {pos_large.x} vs {pos_start.x}"
+    assert pos_large.y == pytest.approx(
+        pos_start.y, abs=SOLVER_TOLERANCE
+    ), f"Precision loss at large t: {pos_large.y} vs {pos_start.y}"
+
+
+def test_solve_kepler_invalid_eccentricity() -> None:
+    """Verify solve_kepler raises ValueError for invalid eccentricity."""
+    # e < 0
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        solve_kepler(0.1, -0.1)
+    # e = 1.0 (parabolic)
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        solve_kepler(0.1, 1.0)
+    # e > 1.0 (hyperbolic)
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        solve_kepler(0.1, 1.5)
+
+
+def test_eccentric_to_true_invalid_eccentricity() -> None:
+    """Verify eccentric_to_true raises ValueError for invalid eccentricity."""
+    # e < 0
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        eccentric_to_true(0.1, -0.1)
+    # e = 1.0
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        eccentric_to_true(0.1, 1.0)
+
+
+def test_get_heliocentric_coords_invalid_elements() -> None:
+    """Verify get_heliocentric_coords raises ValueError for invalid elements."""
+    # Invalid eccentricity
+    with pytest.raises(ValueError, match="elliptical orbits"):
+        get_heliocentric_coords({"a": 1.0, "e": 1.1, "T": 1.0}, 0.0)
+
+    # Invalid semi-major axis (a <= 0)
+    with pytest.raises(ValueError, match="Semi-major axis must be positive"):
+        get_heliocentric_coords({"a": 0.0, "e": 0.1, "T": 1.0}, 0.0)
+    with pytest.raises(ValueError, match="Semi-major axis must be positive"):
+        get_heliocentric_coords({"a": -1.0, "e": 0.1, "T": 1.0}, 0.0)
