@@ -1,6 +1,7 @@
 # CHANGELOG:
 # - Sprint 3: Implement hierarchical logarithmic mapping and neighborhood logic.
 # - Sprint 5: Update for BodyProvider API.
+# - Sprint 7: Centralize scaling constants and refactor neighborhood initialization.
 
 from __future__ import annotations
 

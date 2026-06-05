@@ -2,6 +2,7 @@
 # - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
 # - Sprint 4: Refactor resolve_absolute_position for Dependency Injection and local caching.
 # - Sprint 5: Update for BodyProvider API.
+# - Sprint 7: Implement persistent relative position caching.
 
 from __future__ import annotations
 

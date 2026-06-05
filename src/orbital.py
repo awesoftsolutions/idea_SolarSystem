@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 1: Implement Newton-Raphson Kepler solver and heliocentric coordinate logic.
+# - Sprint 7: Optimize solver tolerance and iteration logic.
 
 """Orbital mechanics engine for deterministic Keplerian motion."""
 

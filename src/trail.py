@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 5: Implement Trail class for position tracking using a ring buffer.
+# - Sprint 7: Fix time-reversal smears with timestamp-aware point addition.
 
 """Trail management system using ring buffers for efficient position tracking."""
 
@@ -19,6 +20,9 @@ class Trail:
 
         Args:
             capacity: The maximum number of points to store.
+
+        Returns:
+            None
         """
         self._points: deque[tuple[float, Vec2]] = deque(maxlen=capacity)
 
@@ -29,6 +33,9 @@ class Trail:
             pos: The Vec2 position to add.
             t: The simulation time associated with this position. If None,
                it is treated as monotonically increasing from the last point.
+
+        Returns:
+            None
         """
         if t is None:
             # Fallback for legacy tests or calls without timestamp

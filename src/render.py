@@ -2,6 +2,8 @@
 # - Sprint 5: Implement Renderer class for Pygame-based visualization.
 # - Sprint 6: Implement exponential trail decay and glowing orbit paths.
 # - Sprint 6: Implement density-aware asteroid cloud rendering, sprite caching, and adaptive orbit sampling.
+# - Sprint 7: Centralize magic numbers to constants.py and optimize sprite blitting.
+# - Sprint 7 Remediation: Fix trail rendering smears and optimize path projection cache reuse.
 
 """Pygame-specific drawing routines for bodies, orbits, and trails."""
 
@@ -276,12 +278,15 @@ class Renderer:
 
         # Use a consistent frame context for all points in the trail
         # to ensure they are mapped relative to the same reference frame.
-        frame_context = Frame(body_name, t)
+        # IMPLEMENTATION DECISION: Primary Frame Context for Trails (DR-018)
+        # Rationale: Using the primary body's frame ensures consistent positioning
+        # relative to the orbital center and prevents smears during frame shifts.
+        primary_name = body_data.get("primary")
+        frame_body = primary_name if primary_name is not None else "Sun"
+        frame_context = Frame(frame_body, t)
         s1 = map_to_screen(points[0], frame_context, self.viewport)
 
         for i in range(num_points - 1):
-            # For performance testing or generic bodies, use the body_name
-            # provided to the method for the frame context.
             s2 = map_to_screen(points[i + 1], frame_context, self.viewport)
 
             # i+1 is the index of the 'head' of the current segment

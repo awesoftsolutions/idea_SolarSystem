@@ -15,11 +15,11 @@ from src.vector import Vec2
 @pytest.fixture
 def mock_pygame():
     """Mock pygame and its submodules."""
-    with mock.patch("pygame.draw") as mock_draw, \
-         mock.patch("pygame.Surface") as mock_surface, \
-         mock.patch("pygame.font.SysFont") as mock_font, \
-         mock.patch("pygame.font.init") as mock_font_init:
-        
+    with mock.patch("pygame.draw") as mock_draw, mock.patch(
+        "pygame.Surface"
+    ) as mock_surface, mock.patch("pygame.font.SysFont") as mock_font, mock.patch(
+        "pygame.font.init"
+    ):
         # Mock font.render to return a mock surface
         mock_font_instance = mock.MagicMock()
         mock_font.return_value = mock_font_instance
@@ -32,7 +32,7 @@ def mock_pygame():
                 "draw": mock_draw,
                 "gfxdraw": mock_gfxdraw,
                 "surface": mock_surface,
-                "font": mock_font
+                "font": mock_font,
             }
 
 
@@ -125,7 +125,7 @@ class TestTitleScene:
         initial_scene = TitleScene()
         manager = SceneManager(initial_scene)
         initial_scene.manager = manager
-        
+
         event = mock.MagicMock(spec=pygame.event.Event)
         event.type = pygame.KEYDOWN
         event.key = pygame.K_ESCAPE
@@ -155,14 +155,14 @@ class TestSimulationScene:
     def test_pause_effect_on_update(self, mock_simulation, mock_renderer):
         """Verify pause effect on simulation clock update."""
         sim_scene = SimulationScene(mock_simulation, mock_renderer)
-        
+
         # Not paused
         sim_scene.is_paused = False
         sim_scene.update(0.016)
         mock_simulation.clock.update.assert_called_once_with(0.016)
-        
+
         mock_simulation.clock.update.reset_mock()
-        
+
         # Paused
         sim_scene.is_paused = True
         sim_scene.update(0.016)
@@ -172,19 +172,19 @@ class TestSimulationScene:
         """Verify renderer dispatch for bodies and orbits (AC 3)."""
         sim_scene = SimulationScene(mock_simulation, mock_renderer)
         surface = mock_pygame["surface"]
-        
+
         sim_scene.draw(surface)
-        
+
         # Verify calls for 'Sun' and 'Earth'
         assert mock_renderer.draw_orbit_path.call_count == 2
         assert mock_renderer.draw_body.call_count == 2
         assert mock_renderer.draw_trail.call_count == 2
-        
+
         mock_renderer.draw_orbit_path.assert_any_call(surface, "Sun")
         mock_renderer.draw_orbit_path.assert_any_call(surface, "Earth")
         mock_renderer.draw_body.assert_any_call(surface, "Sun")
         mock_renderer.draw_body.assert_any_call(surface, "Earth")
-        
+
         # Verify draw_trail is called with a Trail instance
         mock_renderer.draw_trail.assert_any_call(surface, "Sun", mock.ANY)
         mock_renderer.draw_trail.assert_any_call(surface, "Earth", mock.ANY)
@@ -196,7 +196,7 @@ class TestSimulationScene:
         pos_earth = Vec2(100, 0)
         mock_simulation.get_system_state.return_value = {
             "Sun": pos_sun,
-            "Earth": pos_earth
+            "Earth": pos_earth,
         }
 
         sim_scene = SimulationScene(mock_simulation, mock_renderer)
@@ -211,6 +211,4 @@ class TestSimulationScene:
         assert sim_scene._trails["Earth"].get_points() == [pos_earth]
 
         # Verify that the simulation state was requested.
-        mock_simulation.get_system_state.assert_called_with(
-            mock_simulation.clock.t_sim
-        )
+        mock_simulation.get_system_state.assert_called_with(mock_simulation.clock.t_sim)

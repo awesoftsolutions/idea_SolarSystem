@@ -1,6 +1,7 @@
 # CHANGELOG:
 # - Sprint 5: Implement Scene FSM with SceneManager, TitleScene, and SimulationScene.
 # - Sprint 6: Implement predictive paths toggle and robust asteroid belt initialization.
+# - Sprint 7: Centralize UI constants and optimize predictive path caching.
 
 """Scene Management & UI State Machine for the solar simulation.
 

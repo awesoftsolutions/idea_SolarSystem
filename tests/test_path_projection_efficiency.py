@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.simulation import Simulation, SimulationClock
+from src.constants import YEAR_TO_DAY
 
 
 @pytest.fixture
@@ -84,10 +85,11 @@ def test_persistent_cache_hit_rate(mock_bodies):
     # total = 110. hit_rate = 99/110 = 0.9
     # So we need at least 11 calls with identical t_normalized points.
 
-    # The quantization is round(t % T, 6).
+    # The quantization is round(t % T, 12).
     # If T=1.0, then t=0.0, 1.0, 2.0 all map to t_key=0.0.
+    # We use YEAR_TO_DAY to align simulation time (days) with orbital periods (years).
     for i in range(20):
-        t = float(i)  # 0.0, 1.0, 2.0 ... all have same t % 1.0
+        t = float(i) * YEAR_TO_DAY
         sim.get_future_path("BodyA", t, 1.0, 10)
 
     metrics = sim.get_cache_metrics()
@@ -225,9 +227,14 @@ def test_system_state_cache_utilization(hierarchical_bodies):
     # We use a time that maps to the same quantized key if possible,
     # or just check that it's using the cache at all.
     # Period of Earth is 1.0. t=1.0 should hit t=0.0 cache.
-    sim.get_system_state(1.0)
+    # Note: Simulation time is in days, but planets use years.
+    # For hierarchical_bodies, Earth's T=1.0 (years).
+    # resolve_absolute_position uses t/YEAR_TO_DAY for Sun-primary bodies.
+    # So t=0.0 and t=YEAR_TO_DAY should map to the same key.
+    from src.constants import YEAR_TO_DAY
+
+    sim.get_system_state(YEAR_TO_DAY)
     metrics_3 = sim.get_cache_metrics()
 
     # If get_system_state uses the cache, hits should increase.
-    # Currently it doesn't, so this will FAIL.
     assert metrics_3["hits"] > metrics_2["hits"]

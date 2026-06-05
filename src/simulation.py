@@ -3,6 +3,8 @@
 # - Sprint 4: Implement per-tick state caching and Decimal-based deterministic clock.
 # - Sprint 5: Update for BodyProvider API.
 # - Sprint 6: Implement predictive path projection (get_future_path) and optimize projection cache.
+# - Sprint 7: Implement persistent hierarchical projection caching (DR-016).
+# - Sprint 7 Remediation: Fix trail rendering smears and optimize path projection cache reuse.
 
 from __future__ import annotations
 
@@ -147,6 +149,9 @@ class Simulation:
         self._cache_hits = 0
         self._cache_misses = 0
 
+        # Persistent tick cache for optimization (AC-2)
+        self._tick_cache: dict[str, Vec2] = {}
+
     def get_cache_metrics(self) -> dict[str, int | float]:
         """Return hit rate and raw metrics for the projection cache.
 
@@ -183,18 +188,19 @@ class Simulation:
         def _record_cache_miss() -> None:
             self._cache_misses += 1
 
-        tick_cache: dict[str, Vec2] = {}
+        # Reuse and clear persistent tick cache (AC-2)
+        self._tick_cache.clear()
 
         # Resolve all bodies in the injected registry.
         # resolve_absolute_position handles its own recursion and internal cache filling.
         body_names = self.bodies.list_bodies()
         for body_name in body_names:
-            if body_name not in tick_cache:
+            if body_name not in self._tick_cache:
                 resolve_absolute_position(
                     body_name,
                     t,
                     self.bodies,
-                    tick_cache,
+                    self._tick_cache,
                     rel_pos_cache=self._rel_pos_cache,
                     on_cache_hit=_record_cache_hit,
                     on_cache_miss=_record_cache_miss,
@@ -204,7 +210,9 @@ class Simulation:
         # This ensures that if resolve_absolute_position injected 'Sun' as a base case
         # but 'Sun' wasn't in self.bodies, it won't be in the returned state.
         filtered_state = {
-            name: tick_cache[name] for name in body_names if name in tick_cache
+            name: self._tick_cache[name]
+            for name in body_names
+            if name in self._tick_cache
         }
 
         self._cache_t = t
@@ -240,21 +248,19 @@ class Simulation:
         def _record_cache_miss() -> None:
             self._cache_misses += 1
 
-        # Use an empty tick cache per step to avoid polluting the main simulation cache
-        # while still allowing resolve_absolute_position to use the persistent cache.
-        tick_cache: dict[str, Vec2] = {}
-
         for i in range(steps + 1):
             # IMPLEMENTATION DECISION: Decimal precision for path projection.
             # Rationale: Matches SimulationClock's Decimal accumulation to prevent drift.
             t_future = float(Decimal(str(t_start)) + (Decimal(i) * Decimal(str(dt))))
-            tick_cache.clear()
+
+            # Reuse and clear persistent tick cache (AC-2)
+            self._tick_cache.clear()
 
             pos = resolve_absolute_position(
                 body_name,
                 t_future,
                 self.bodies,
-                tick_cache,
+                self._tick_cache,
                 rel_pos_cache=self._rel_pos_cache,
                 on_cache_hit=_record_cache_hit,
                 on_cache_miss=_record_cache_miss,
