@@ -25,11 +25,12 @@ SIZE_LOG_OFFSET: float = -8.4
 
 # Display Neighborhoods (Radii in pixels)
 # Capped radii for each primary body's display neighborhood to prevent overlap.
+# UPDATED: Increased radii to prevent visual occlusion of moons by their primaries.
 DISPLAY_NEIGHBORHOODS: dict[str, float] = {
     "Sun": 600.0,
-    "Earth": 15.0,
-    "Jupiter": 50.0,
-    "Saturn": 40.0,
-    "Mars": 10.0,
-    "Neptune": 15.0,
+    "Earth": 50.0,
+    "Jupiter": 100.0,
+    "Saturn": 80.0,
+    "Mars": 30.0,
+    "Neptune": 50.0,
 }

@@ -3,7 +3,7 @@
 import math
 from typing import Any
 
-from src.constants import AU_TO_KM, WINDOW_SIZE
+from src.constants import AU_TO_KM
 from src.frames import Frame, resolve_absolute_position
 from src.vector import Vec2
 from src.scaling_constants import (
@@ -15,6 +15,7 @@ from src.scaling_constants import (
     LOG_BASE_DISTANCE,
 )
 from src.bodies import BODIES
+from src.viewport import Viewport, world_to_screen
 
 # Module-level state (Internal)
 _WORLD_CACHE: dict[tuple[str, float, float], Vec2] = {}
@@ -104,75 +105,9 @@ def _get_scaling_params(primary_name: str) -> tuple[float, float]:
     return k, s
 
 
-class Viewport:
-    """Viewport configuration for coordinate mapping.
-
-    Attributes:
-        center: The world-space position at the center of the viewport.
-        zoom: The zoom level (default 1.0).
-    """
-
-    def __init__(self, center: Vec2, zoom: float = 1.0) -> None:
-        """Initialize Viewport.
-
-        Args:
-            center: World-space center position.
-            zoom: Zoom level.
-        """
-        self.center = center
-        self.zoom = zoom
-
-
-def world_to_screen(world_pos: Vec2, viewport: Viewport) -> Vec2:
-    """Map world coordinates to screen coordinates.
-
-    Args:
-        world_pos: Position in world space.
-        viewport: Viewport configuration.
-
-    Returns:
-        Position in screen space (pixels).
-    """
-    # 1. Calculate relative position from viewport center
-    rel_pos = world_pos - viewport.center
-
-    # 2. Apply zoom factor
-    zoomed_pos = rel_pos * viewport.zoom
-
-    # 3. Translate to screen space using dynamic anchor
-    anchor = Vec2(WINDOW_SIZE[0] / 2.0, WINDOW_SIZE[1] / 2.0)
-    screen_pos = zoomed_pos + anchor
-
-    return screen_pos
-
-
-def screen_to_world(screen_pos: Vec2, viewport: Viewport) -> Vec2:
-    """Map screen coordinates back to world coordinates.
-
-    Args:
-        screen_pos: Position in screen space (pixels).
-        viewport: Viewport configuration.
-
-    Returns:
-        Position in world space.
-    """
-    # 1. Translate from screen space to zoomed space
-    anchor = Vec2(WINDOW_SIZE[0] / 2.0, WINDOW_SIZE[1] / 2.0)
-    zoomed_pos = screen_pos - anchor
-
-    # 2. Remove zoom factor (clamp zoom to prevent ZeroDivisionError)
-    safe_zoom = max(viewport.zoom, 1e-6)
-    rel_pos = zoomed_pos / safe_zoom
-
-    # 3. Translate back to world space relative to viewport center
-    world_pos = rel_pos + viewport.center
-
-    return world_pos
-
-
 def log_scale_distance(
     d: float,
-    base: float,
+    log_base: float = LOG_BASE_DISTANCE,
     k: float = DISTANCE_LOG_K,
     s: float = DISTANCE_LOG_SCALE_FACTOR,
 ) -> float:
@@ -180,7 +115,7 @@ def log_scale_distance(
 
     Args:
         d: Physical distance (AU or km).
-        base: Logarithm base.
+        log_base: Logarithm base.
         k: Scaling constant (pixels).
         s: Scale factor in the units of d (AU for Sun-centered, KM otherwise).
 
@@ -190,7 +125,7 @@ def log_scale_distance(
     if d <= 0:
         return 0.0
 
-    log_val = math.log(1 + d / s, base)
+    log_val = math.log(1 + d / s, log_base)
     return log_val * k
 
 
@@ -251,14 +186,11 @@ def get_neighborhood_k(primary_name: str) -> float:
     return k
 
 
-def scale_orbit_geometry(
-    elements: dict[str, Any], scale_factor: float
-) -> dict[str, Any]:
+def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
     """Scale orbital ellipse geometry while preserving eccentricity and orientation.
 
     Args:
         elements: Dictionary containing 'a', 'e', 'longitude_of_perihelion', and 'primary'.
-        scale_factor: Logarithm base for distance scaling.
 
     Returns:
         Dictionary with 'a_v', 'b_v', 'center_offset' (Vec2), and 'orientation'.
@@ -270,7 +202,7 @@ def scale_orbit_geometry(
 
     # 1. Calculate visual semi-major axis using neighborhood-specific K
     k, s = _get_scaling_params(primary_name)
-    a_v = log_scale_distance(a, scale_factor, k, s)
+    a_v = log_scale_distance(a, LOG_BASE_DISTANCE, k, s)
 
     # 2. Calculate visual semi-minor axis to preserve eccentricity
     ratio = math.sqrt(1.0 - e * e)
@@ -344,21 +276,37 @@ def map_to_world(
     # 6. Calculate Relative Physical Offset
     relative_offset = actual_pos - primary_abs_pos
 
-    # IMPLEMENTATION DECISION: Convert KM to AU for Sun-relative offsets.
-    # Rationale: BODIES data for Sun-orbiting bodies uses AU for 'a',
-    # but resolve_absolute_position returns KM.
-    dist_km = relative_offset.magnitude()
-    dist = dist_km / AU_TO_KM if primary_name == "Sun" else dist_km
-
-    # 7. Apply Neighborhood-Specific Logarithmic Scaling
+    # 7. Apply Linear Scaling for Relative Offsets
+    # IMPLEMENTATION DECISION: Use a linear scale factor derived from the log-scaled semi-major axis.
+    # Rationale: This ensures that orbits remain true ellipses (linear transformation)
+    # while the overall system hierarchy is compressed logarithmically.
+    a = body_data.get("a", 1.0)
     k, s = _get_scaling_params(primary_name)
-    scaled_dist = log_scale_distance(dist, LOG_BASE_DISTANCE, k, s)
 
-    if dist > 0:
-        unit_vec = relative_offset.normalize()
-        scaled_offset = unit_vec * scaled_dist
+    # Convert KM to AU for Sun-relative offsets to match 'a' units
+    if primary_name == "Sun":
+        a_physical = a
     else:
-        scaled_offset = Vec2(0.0, 0.0)
+        a_physical = a  # 'a' is already in km for moons
+
+    # Calculate the visual semi-major axis
+    a_v = log_scale_distance(a_physical, LOG_BASE_DISTANCE, k, s)
+
+    # Derive linear scale factor: k_linear = a_v / a_physical
+    if a_physical > 0:
+        k_linear = a_v / a_physical
+    else:
+        # Fallback to neighborhood reference if 'a' is missing or zero
+        d_ref = _get_neighborhood_d_ref(primary_name)
+        a_v_ref = log_scale_distance(d_ref, LOG_BASE_DISTANCE, k, s)
+        k_linear = a_v_ref / d_ref
+
+    # If primary is Sun, we need to convert relative_offset (KM) to AU for linear scaling
+    if primary_name == "Sun":
+        relative_offset_au = relative_offset / AU_TO_KM
+        scaled_offset = relative_offset_au * k_linear
+    else:
+        scaled_offset = relative_offset * k_linear
 
     # 8. Compose Final World Position
     world_pos = primary_world_pos + scaled_offset
