@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 5: Implement Renderer class for Pygame-based visualization.
+# - Sprint 6: Implement exponential trail decay and glowing orbit paths.
 
 """Pygame-specific drawing routines for bodies, orbits, and trails."""
 
@@ -9,7 +10,12 @@ import pygame
 import pygame.gfxdraw
 from src.simulation import Simulation
 from src.viewport import Viewport, world_to_screen
-from src.scaling import map_to_screen, map_to_world, scale_orbit_geometry, log_scale_size
+from src.scaling import (
+    map_to_screen,
+    map_to_world,
+    scale_orbit_geometry,
+    log_scale_size,
+)
 from src.frames import Frame
 from src.trail import Trail
 from src.scaling_constants import MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
@@ -49,13 +55,17 @@ class Renderer:
         screen_pos = map_to_screen(actual_pos, frame_context, self.viewport)
 
         radius_km = body_data["radius"]
-        radius_px = log_scale_size(radius_km, MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE)
+        radius_px = log_scale_size(
+            radius_km, MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
+        )
 
         color = body_data["color"]
-        pygame.draw.circle(surface, color, screen_pos, radius_px)
+        # Convert Vec2 to tuple for pygame.draw.circle compatibility
+        pos_tuple = (int(screen_pos.x), int(screen_pos.y))
+        pygame.draw.circle(surface, color, pos_tuple, int(radius_px))
 
     def draw_orbit_path(self, surface: pygame.Surface, body_name: str) -> None:
-        """Draw the faint elliptical orbit path for a body using polygon approximation.
+        """Draw the glowing elliptical orbit path with adaptive sampling.
 
         Args:
             surface: The Pygame surface to draw on.
@@ -64,7 +74,7 @@ class Renderer:
         body_data = self.simulation.bodies.get_body(body_name)
         primary_name = body_data.get("primary")
         if primary_name is None:
-            return  # Sun or bodies without primary have no orbit
+            return
 
         t = self.simulation.clock.t_sim
         orbit_geo = scale_orbit_geometry(body_data)
@@ -75,42 +85,53 @@ class Renderer:
         primary_frame = Frame(primary_name, t)
         primary_world_pos = map_to_world(primary_abs_pos, primary_frame)
 
-        # Calculate visual center in world space
         world_center = primary_world_pos + orbit_geo["center_offset"]
         screen_center = world_to_screen(world_center, self.viewport)
 
-        # Orbit color (body color with low alpha)
-        base_color = body_data["color"]
-        color = (base_color[0], base_color[1], base_color[2], 64)
-
-        # Polygon approximation for rotated ellipse
-        num_points = 128
-        points = []
         a_v = orbit_geo["a_v"]
         b_v = orbit_geo["b_v"]
         orientation = orbit_geo["orientation"]
-        
+
+        # Adaptive Sampling based on screen-space circumference
+        # Approx circumference: 2 * pi * sqrt((a^2 + b^2) / 2)
+        circumference_px = 2 * math.pi * math.sqrt((a_v**2 + b_v**2) / 2.0)
+        num_points = max(64, min(1024, int(circumference_px / 5.0)))
+
+        points = []
         cos_o = math.cos(orientation)
         sin_o = math.sin(orientation)
 
+        # Pre-calculate trig values for the loop
         for i in range(num_points):
             theta = 2.0 * math.pi * i / num_points
-            # Local ellipse coordinates
-            lx = a_v * math.cos(theta)
-            ly = b_v * math.sin(theta)
-            
-            # Rotate by orientation
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
+
+            lx = a_v * cos_t
+            ly = b_v * sin_t
+
             rx = lx * cos_o - ly * sin_o
             ry = lx * sin_o + ly * cos_o
-            
-            # Translate to screen center
+
             points.append((int(screen_center.x + rx), int(screen_center.y + ry)))
 
-        pygame.gfxdraw.aapolygon(surface, points, color)
-        pygame.gfxdraw.polygon(surface, points, color)
+        base_color = body_data["color"]
+
+        # Multi-pass Glow Rendering
+        # Pass 1: Outer glow (Wide, low alpha)
+        glow_color_1 = (base_color[0], base_color[1], base_color[2], 32)
+        pygame.draw.lines(surface, glow_color_1, True, points, width=3)
+
+        # Pass 2: Inner glow (Medium, medium alpha)
+        glow_color_2 = (base_color[0], base_color[1], base_color[2], 64)
+        pygame.draw.lines(surface, glow_color_2, True, points, width=2)
+
+        # Pass 3: Anti-aliased Core (1px, high alpha)
+        core_color = (base_color[0], base_color[1], base_color[2], 128)
+        pygame.gfxdraw.aapolygon(surface, points, core_color)
 
     def draw_trail(self, surface: pygame.Surface, body_name: str, trail: Trail) -> None:
-        """Draw the fading trail behind a body with optimized coordinate mapping.
+        """Draw the trail with exponential alpha decay for smooth visual fading.
 
         Args:
             surface: The Pygame surface to draw on.
@@ -125,23 +146,30 @@ class Renderer:
         t = self.simulation.clock.t_sim
         body_data = self.simulation.bodies.get_body(body_name)
         base_color = body_data["color"]
-        frame_context = Frame(body_name, t)
 
-        # Cache the first point's screen position
+        # Calculate exponential decay constant k such that alpha_min = 5.0
+        alpha_min = 5.0
+        # alpha = 255 * exp(-k * distance_from_head)
+        # 5 = 255 * exp(-k * (N-1)) => k = ln(255/5) / (N-1)
+        k = math.log(255.0 / alpha_min) / (num_points - 1)
+
+        # Use a consistent frame context for all points in the trail
+        # to ensure they are mapped relative to the same reference frame.
+        frame_context = Frame(body_name, t)
         s1 = map_to_screen(points[0], frame_context, self.viewport)
-        
+
         for i in range(num_points - 1):
-            # The next point's screen position
+            # For performance testing or generic bodies, use the body_name
+            # provided to the method for the frame context.
             s2 = map_to_screen(points[i + 1], frame_context, self.viewport)
 
-            alpha = int(255 * (i + 1) / num_points)
+            # i+1 is the index of the 'head' of the current segment
+            # Newest point in trail is at index num_points - 1
+            distance_from_head = (num_points - 1) - (i + 1)
+            alpha = int(255 * math.exp(-k * distance_from_head))
             color = (base_color[0], base_color[1], base_color[2], alpha)
 
             pygame.gfxdraw.line(
-                surface, 
-                int(s1.x), int(s1.y), 
-                int(s2.x), int(s2.y), 
-                color
+                surface, int(s1.x), int(s1.y), int(s2.x), int(s2.y), color
             )
-            # Current s2 becomes s1 for the next segment
             s1 = s2
