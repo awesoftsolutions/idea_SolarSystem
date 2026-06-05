@@ -60,7 +60,7 @@ def handle_global_input(
         if event.key == pygame.K_ESCAPE:
             return False
 
-        # AC-5: Time Reversal (SPACE)
+        # AC-3: Time Reversal (SPACE)
         if event.key == pygame.K_SPACE:
             if manager and active_scene_is_simulation(manager):
                 sim_clock.rate = -1.0 * sim_clock.rate

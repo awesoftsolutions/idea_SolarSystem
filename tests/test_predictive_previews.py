@@ -18,7 +18,14 @@ def mock_pygame():
     """Mock pygame and its submodules for headless testing."""
     with mock.patch("pygame.draw") as mock_draw, mock.patch(
         "pygame.Surface"
-    ) as mock_surface, mock.patch("pygame.font.SysFont") as mock_font:
+    ) as mock_surface, mock.patch("pygame.font.SysFont") as mock_font, mock.patch(
+        "pygame.font.init"
+    ):
+        # Mock font.render to return a mock surface
+        mock_font_instance = mock.MagicMock()
+        mock_font.return_value = mock_font_instance
+        mock_font_instance.render.return_value = mock.MagicMock()
+
         mock_gfxdraw = mock.MagicMock()
         with mock.patch("pygame.gfxdraw", mock_gfxdraw, create=True):
             yield {
@@ -67,8 +74,8 @@ def test_get_future_path_accuracy():
 
     # Mock resolve_absolute_position to return predictable values
     with mock.patch("src.simulation.resolve_absolute_position") as mock_resolve:
-        # resolve_absolute_position(body_name, t, bodies, cache)
-        mock_resolve.side_effect = lambda name, t, bodies, cache: Vec2(t, t)
+        # resolve_absolute_position(body_name, t, bodies, cache, **kwargs)
+        mock_resolve.side_effect = lambda name, t, bodies, cache, **kwargs: Vec2(t, t)
 
         path = sim.get_future_path(
             body_name="Earth", t_start=t_start, duration=duration, steps=steps

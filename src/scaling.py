@@ -286,7 +286,7 @@ def map_to_world(
         World-space position vector in pixels.
 
     Raises:
-        KeyError: If body_name is not in BODIES.
+        KeyError: If frame_context.name is not in BODIES.
         RuntimeError: If a circular dependency is detected.
     """
     global _LAST_SIM_TIME
@@ -374,7 +374,7 @@ def map_to_screen(actual_pos: Vec2, frame_context: Frame, viewport: Viewport) ->
         Position in screen space (pixels).
 
     Raises:
-        KeyError: If body_name is not in BODIES.
+        KeyError: If frame_context.name is not in BODIES.
         RuntimeError: If a circular dependency is detected.
     """
     # 1. Map to world space (hierarchical log scaling)

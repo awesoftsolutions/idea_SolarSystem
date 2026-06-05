@@ -37,6 +37,10 @@ def _get_font(name: str, size: int) -> pygame.font.Font:
     Returns:
         A Pygame Font instance.
     """
+    if not pygame.font.get_init():
+        pygame.font.init()
+        _FONT_CACHE.clear()
+
     key = (name, size)
     if key not in _FONT_CACHE:
         _FONT_CACHE[key] = pygame.font.SysFont(name, size)

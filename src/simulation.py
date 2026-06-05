@@ -245,7 +245,9 @@ class Simulation:
         tick_cache: dict[str, Vec2] = {}
 
         for i in range(steps + 1):
-            t_future = t_start + (i * dt)
+            # IMPLEMENTATION DECISION: Decimal precision for path projection.
+            # Rationale: Matches SimulationClock's Decimal accumulation to prevent drift.
+            t_future = float(Decimal(str(t_start)) + (Decimal(i) * Decimal(str(dt))))
             tick_cache.clear()
 
             pos = resolve_absolute_position(

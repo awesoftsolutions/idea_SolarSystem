@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import typing
 
-from src.constants import AU_TO_KM
+from src.constants import AU_TO_KM, YEAR_TO_DAY
 from src.orbital import get_heliocentric_coords
 from src.vector import Vec2
 
@@ -113,6 +113,14 @@ def resolve_absolute_position(
             on_cache_miss=on_cache_miss,
         )
 
+    # 6.1. Unit Correction (Days to Years for Sun-primary bodies)
+    t_orbital = t
+    # IMPLEMENTATION DECISION: Unit consistency for heliocentric orbits.
+    # Rationale: Orbital elements for Sun-primary bodies (planets) are defined in years.
+    # Simulation time 't' is in days.
+    if primary_name == "Sun":
+        t_orbital = t / YEAR_TO_DAY
+
     # 7. Calculate Relative Position (with Persistent Cache)
     rel_pos: Vec2 | None = None
     if rel_pos_cache is not None and all(k in body_data for k in ("a", "e", "T")):
@@ -121,7 +129,9 @@ def resolve_absolute_position(
             float(body_data["e"]),
             float(body_data["T"]),
         )
-        t_key = round(t % period, 6)
+        # IMPLEMENTATION DECISION: High-precision cache key.
+        # Rationale: 12 decimal places prevents ~31.5s quantization jitter for Sun-primary bodies.
+        t_key = round(t_orbital % period, 12)
         cache_key = (a, e, period, t_key)
 
         if cache_key in rel_pos_cache:
@@ -130,7 +140,7 @@ def resolve_absolute_position(
                 on_cache_hit()
         else:
             rel_pos = get_heliocentric_coords(
-                typing.cast(typing.Dict[str, typing.Any], body_data), t
+                typing.cast(typing.Dict[str, typing.Any], body_data), t_orbital
             )
             rel_pos_cache[cache_key] = rel_pos
             if on_cache_miss:
@@ -138,7 +148,7 @@ def resolve_absolute_position(
     else:
         # Fallback to fresh calculation if cache not provided or elements missing
         rel_pos = get_heliocentric_coords(
-            typing.cast(typing.Dict[str, typing.Any], body_data), t
+            typing.cast(typing.Dict[str, typing.Any], body_data), t_orbital
         )
 
     # 8. Unit Conversion (AU to KM)

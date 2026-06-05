@@ -15,6 +15,9 @@ MAX_ITERATIONS: int = 100
 AU_TO_KM: float = 149597870.7
 """Conversion factor from Astronomical Units to kilometers."""
 
+YEAR_TO_DAY: float = 365.25
+"""Conversion factor from years to days."""
+
 SUN_POS_THRESHOLD: float = 1e-3
 """Threshold for treating position as Sun-center."""
 
