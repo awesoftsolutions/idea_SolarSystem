@@ -176,3 +176,38 @@ class Simulation:
         self._cache_t = t
         self._cache_state = filtered_state
         return filtered_state.copy()
+
+    def get_future_path(
+        self, body_name: str, t_start: float, duration: float, steps: int
+    ) -> list[Vec2]:
+        """Calculate a list of future positions for a specific body.
+
+        Args:
+            body_name: The name of the body to project.
+            t_start: The starting simulation time.
+            duration: The time duration to project into the future.
+            steps: The number of segments to calculate.
+
+        Returns:
+            A list of absolute Vec2 positions.
+
+        Raises:
+            ValueError: If steps is less than or equal to 0.
+        """
+        if steps <= 0:
+            raise ValueError(f"steps must be greater than 0, got {steps}")
+
+        dt = duration / steps
+        path: list[Vec2] = []
+
+        for i in range(steps + 1):
+            t_future = t_start + (i * dt)
+            # Use an empty cache to ensure fresh calculation per point
+            # and avoid polluting the main simulation cache.
+            tick_cache: dict[str, Vec2] = {}
+            pos = resolve_absolute_position(
+                body_name, t_future, self.bodies, tick_cache
+            )
+            path.append(pos)
+
+        return path

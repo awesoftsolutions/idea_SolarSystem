@@ -131,19 +131,13 @@ class TitleScene(Scene):
 
         font = _get_font("Arial", 64)
         title_surf = font.render("solar", True, (255, 255, 255))
-        surface.blit(
-            title_surf,
-            (surface.get_width() // 2 - title_surf.get_width() // 2, 200),
-        )
+        title_x = surface.get_width() // 2 - title_surf.get_width() // 2
+        surface.blit(title_surf, (title_x, 200))
 
         font_small = _get_font("Arial", 24)
-        prompt_surf = font_small.render(
-            "Press SPACE to Start", True, (200, 200, 200)
-        )
-        surface.blit(
-            prompt_surf,
-            (surface.get_width() // 2 - prompt_surf.get_width() // 2, 400),
-        )
+        prompt_surf = font_small.render("Press SPACE to Start", True, (200, 200, 200))
+        prompt_x = surface.get_width() // 2 - prompt_surf.get_width() // 2
+        surface.blit(prompt_surf, (prompt_x, 400))
 
 
 class SimulationScene(Scene):
@@ -155,10 +149,22 @@ class SimulationScene(Scene):
         Args:
             simulation: The simulation model.
             renderer: The rendering engine.
+
+        Returns:
+            None
         """
         self.simulation = simulation
         self.renderer = renderer
         self.is_paused = False
+        self.show_predictions = False
+
+        # Cache for asteroid set to avoid repeated lookups in draw()
+        groups = self.simulation.bodies.get_groups()
+        self._asteroid_set = set(groups.get("AsteroidBelt", []))
+
+        # Cache for predictive paths to avoid heavy calculations in draw()
+        self._predictive_paths: dict[str, list] = {}
+        self._last_predictive_update_t: float | None = None
 
         # Initialize trails for each body
         self._trails: dict[str, Trail] = {}
@@ -168,36 +174,83 @@ class SimulationScene(Scene):
             self._trails[name] = Trail(capacity=100)
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Toggle pause on 'P'."""
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_p:
-            self.is_paused = not self.is_paused
+        """Toggle pause on 'P' and predictions on 'F'.
+
+        Returns:
+            None
+        """
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_p:
+                self.is_paused = not self.is_paused
+            elif event.key == pygame.K_f:
+                self.show_predictions = not self.show_predictions
 
     def update(self, dt: float) -> None:
-        """Update simulation clock and trails if not paused."""
+        """Update simulation clock and trails if not paused.
+
+        Returns:
+            None
+        """
         if not self.is_paused:
             self.simulation.clock.update(dt)
 
-            # Record current positions in trails
-            t = self.simulation.clock.t_sim
-            state = self.simulation.get_system_state(t)
-            for name, pos in state.items():
-                if name in self._trails:
-                    self._trails[name].append(pos)
+        # Record current positions in trails
+        t = self.simulation.clock.t_sim
+        state = self.simulation.get_system_state(t)
+        for name, pos in state.items():
+            if name in self._trails:
+                self._trails[name].append(pos)
+
+        # Update predictive paths if enabled and time has changed
+        if self.show_predictions and t != self._last_predictive_update_t:
+            self._predictive_paths.clear()
+            all_body_names = self.simulation.bodies.list_bodies()
+            for name in all_body_names:
+                if name in self._asteroid_set:
+                    continue
+
+                body_data = self.simulation.bodies.get_body(name)
+                # Skip bodies without orbital period T
+                if "T" not in body_data:
+                    continue
+
+                period = float(body_data["T"])
+                self._predictive_paths[name] = self.simulation.get_future_path(
+                    name, t, duration=period * 0.25, steps=20
+                )
+            self._last_predictive_update_t = t
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dispatch draw calls to Renderer and draw UI overlays."""
+        """Dispatch draw calls to Renderer and draw UI overlays.
+
+        Returns:
+            None
+        """
         surface.fill((0, 0, 0))
 
-        body_names = self.simulation.bodies.list_bodies()
-        for name in body_names:
+        all_body_names = self.simulation.bodies.list_bodies()
+        t_sim = self.simulation.clock.get_time()
+
+        # Phase 1: Major Bodies (Orbits, Trails, Bodies)
+        for name in all_body_names:
+            if name in self._asteroid_set:
+                continue
+
             self.renderer.draw_orbit_path(surface, name)
             if name in self._trails:
                 self.renderer.draw_trail(surface, name, self._trails[name])
             self.renderer.draw_body(surface, name)
 
+        # Phase 2: Optimized Asteroid Belt
+        self.renderer.draw_asteroid_belt(surface, self._trails)
+
         # UI Overlays
-        t_sim = self.simulation.clock.get_time()
         rate = self.simulation.clock.rate
+
+        # Phase 3: Predictive Previews (using cached paths from update)
+        if self.show_predictions:
+            for name, path in self._predictive_paths.items():
+                self.renderer.draw_predictive_trail(surface, name, path)
 
         font = _get_font("Arial", 18)
         time_surf = font.render(f"Time: {t_sim:.2f}", True, (255, 255, 255))

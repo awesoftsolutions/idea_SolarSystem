@@ -9,6 +9,7 @@ import math
 import pygame
 import pygame.gfxdraw
 from src.simulation import Simulation
+from src.vector import Vec2
 from src.viewport import Viewport, world_to_screen
 from src.scaling import (
     map_to_screen,
@@ -35,9 +36,87 @@ class Renderer:
         Args:
             simulation: Simulation instance.
             viewport: Viewport instance.
+
+        Returns:
+            None
         """
         self.simulation = simulation
         self.viewport = viewport
+        self._sprite_cache: dict[tuple[tuple[int, int, int], int], pygame.Surface] = {}
+
+    def _get_asteroid_sprite(
+        self, color: tuple[int, int, int], radius_px: int
+    ) -> pygame.Surface:
+        """Retrieve a cached asteroid sprite or create a new one.
+
+        Args:
+            color: RGB color tuple.
+            radius_px: Radius in pixels.
+
+        Returns:
+            A Pygame surface containing the asteroid sprite.
+        """
+        key = (color, radius_px)
+        if key in self._sprite_cache:
+            return self._sprite_cache[key]
+
+        size = max(1, radius_px * 2)
+        surface = pygame.Surface((size, size), pygame.SRCALPHA)
+        pygame.draw.circle(surface, color, (radius_px, radius_px), radius_px)
+        self._sprite_cache[key] = surface
+        return surface
+
+    def draw_asteroid_belt(
+        self, surface: pygame.Surface, trails: dict[str, Trail]
+    ) -> None:
+        """Perform optimized batch rendering of the asteroid belt.
+
+        Args:
+            surface: The Pygame surface to draw on.
+            trails: Dictionary of Trail instances.
+
+        Returns:
+            None
+        """
+        groups = self.simulation.bodies.get_groups()
+        asteroid_names = groups.get("AsteroidBelt", [])
+
+        if not asteroid_names:
+            return
+
+        batch_list = []
+        t = self.simulation.clock.t_sim
+        state = self.simulation.get_system_state(t)
+        zoom = self.viewport.zoom
+
+        for name in asteroid_names:
+            if name not in state:
+                continue
+            actual_pos = state[name]
+
+            # 1. LOD for Trails
+            if zoom > 2.0 and name in trails:
+                self.draw_trail(surface, name, trails[name])
+
+            # 2. Coordinate Mapping
+            frame_context = Frame(name, t)
+            screen_pos = map_to_screen(actual_pos, frame_context, self.viewport)
+
+            # 3. Sprite Selection
+            body_data = self.simulation.bodies.get_body(name)
+            radius_km = body_data["radius"]
+            radius_px = log_scale_size(
+                radius_km, MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
+            )
+            sprite = self._get_asteroid_sprite(body_data["color"], int(radius_px))
+
+            # 4. Batch Collection
+            blit_pos = (int(screen_pos.x - radius_px), int(screen_pos.y - radius_px))
+            batch_list.append((sprite, blit_pos))
+
+        # 5. Batch Execution
+        if batch_list:
+            surface.blits(batch_list)
 
     def draw_body(self, surface: pygame.Surface, body_name: str) -> None:
         """Draw a body as a colored circle at its scaled screen position.
@@ -45,6 +124,9 @@ class Renderer:
         Args:
             surface: The Pygame surface to draw on.
             body_name: The name of the body to draw.
+
+        Returns:
+            None
         """
         body_data = self.simulation.bodies.get_body(body_name)
         t = self.simulation.clock.t_sim
@@ -70,6 +152,9 @@ class Renderer:
         Args:
             surface: The Pygame surface to draw on.
             body_name: The name of the body whose orbit to draw.
+
+        Returns:
+            None
         """
         body_data = self.simulation.bodies.get_body(body_name)
         primary_name = body_data.get("primary")
@@ -137,6 +222,9 @@ class Renderer:
             surface: The Pygame surface to draw on.
             body_name: The name of the body.
             trail: The Trail instance containing historical positions.
+
+        Returns:
+            None
         """
         points = trail.get_points()
         num_points = len(points)
@@ -173,3 +261,49 @@ class Renderer:
                 surface, int(s1.x), int(s1.y), int(s2.x), int(s2.y), color
             )
             s1 = s2
+
+    def draw_predictive_trail(
+        self, surface: pygame.Surface, body_name: str, path: list[Vec2]
+    ) -> None:
+        """Draw a predictive future path for a body with a dashed visual style.
+
+        Args:
+            surface: The Pygame surface to draw on.
+            body_name: The name of the body.
+            path: A list of future absolute positions.
+
+        Returns:
+            None
+        """
+        if len(path) < 2:
+            return
+
+        t = self.simulation.clock.t_sim
+        body_data = self.simulation.bodies.get_body(body_name)
+        base_color = body_data["color"]
+        # Semi-transparent color for the predictive trail (alpha=100)
+        trail_color = (base_color[0], base_color[1], base_color[2], 100)
+
+        # Use the current body's frame context for consistent mapping
+        frame_context = Frame(body_name, t)
+
+        # Optimization: Pre-map all points to screen space to avoid redundant calculations
+        screen_points = [map_to_screen(p, frame_context, self.viewport) for p in path]
+
+        for i in range(len(screen_points) - 1):
+            # Dashed effect: only draw even-indexed segments
+            if i % 2 != 0:
+                continue
+
+            s1 = screen_points[i]
+            s2 = screen_points[i + 1]
+
+            # Use gfxdraw.line for proper alpha blending support
+            pygame.gfxdraw.line(
+                surface,
+                int(s1.x),
+                int(s1.y),
+                int(s2.x),
+                int(s2.y),
+                trail_color,
+            )

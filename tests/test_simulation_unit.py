@@ -236,6 +236,31 @@ class TestSimulation:
                 new_state[test_key] == original_val
             ), "Internal cache was corrupted by external mutation of returned dict."
 
+    def test_get_future_path_accuracy(self, simulation: Simulation) -> None:
+        """Verify that get_future_path returns points matching future system states (AC-2)."""
+        t_start = 100.0
+        duration = 50.0
+        steps = 5
+        dt = duration / steps
+
+        path = simulation.get_future_path(
+            body_name="Earth", t_start=t_start, duration=duration, steps=steps
+        )
+
+        assert len(path) == steps + 1
+        for i, pos in enumerate(path):
+            t_i = t_start + i * dt
+            expected_state = simulation.get_system_state(t_i)
+            assert pos == expected_state["Earth"]
+
+    def test_get_future_path_invalid_steps(self, simulation: Simulation) -> None:
+        """Verify that get_future_path raises ValueError for invalid steps (Robustness)."""
+        with pytest.raises(ValueError, match="steps must be greater than 0"):
+            simulation.get_future_path("Earth", 0, 100, 0)
+
+        with pytest.raises(ValueError, match="steps must be greater than 0"):
+            simulation.get_future_path("Earth", 0, 100, -1)
+
     def test_no_pygame_import(self) -> None:
         """Verify that src/simulation.py does not import pygame.
 
@@ -282,3 +307,34 @@ class TestSimulationClockPrecision:
             clock.update(dt)
 
         assert clock.get_time() == 1.0
+
+
+class TestSimulationFuturePath:
+    """Tests for deterministic future path calculation (AC-4)."""
+
+    @pytest.fixture
+    def simulation(self) -> Simulation:
+        """Provide a Simulation instance with a default clock and injected bodies."""
+        clock = SimulationClock()
+        return Simulation(clock=clock, bodies=BODIES)
+
+    def test_get_future_path_accuracy(self, simulation: Simulation) -> None:
+        """Verify that get_future_path returns points matching future system states (AC-4)."""
+        t_start = 100.0
+        duration = 50.0
+        steps = 5
+        dt = duration / steps
+        body_name = "Earth"
+
+        # Calculate path using get_future_path
+        path = simulation.get_future_path(
+            body_name=body_name, t_start=t_start, duration=duration, steps=steps
+        )
+
+        assert len(path) == steps + 1
+
+        # Verify each point matches get_system_state at the corresponding future time
+        for i, pos in enumerate(path):
+            t_future = t_start + (i * dt)
+            state = simulation.get_system_state(t_future)
+            assert pos == state[body_name], f"Mismatch at step {i}, time {t_future}"
