@@ -8,9 +8,9 @@ This module provides the SimulationClock for managing simulation time
 and the Simulation class for calculating the system state at any given time.
 """
 
+from typing import Any
 from decimal import Decimal
 from src.vector import Vec2
-from src.bodies import BODIES
 from src.frames import resolve_absolute_position
 
 
@@ -52,6 +52,9 @@ class SimulationClock:
 
         Args:
             value: The new simulation rate.
+
+        Returns:
+            None
         """
         self._rate = Decimal(str(value))
 
@@ -70,6 +73,9 @@ class SimulationClock:
 
         Args:
             value: The new simulation time.
+
+        Returns:
+            None
         """
         self._t_sim = Decimal(str(value))
 
@@ -78,6 +84,9 @@ class SimulationClock:
 
         Args:
             dt: Real elapsed time in seconds.
+
+        Returns:
+            None
         """
         # Convert to string first to ensure Decimal precision matches float representation
         self._t_sim += Decimal(str(dt)) * self._rate
@@ -87,6 +96,9 @@ class SimulationClock:
 
         Args:
             new_rate: The new time multiplier.
+
+        Returns:
+            None
         """
         self.rate = new_rate
 
@@ -104,18 +116,21 @@ class Simulation:
 
     Attributes:
         clock: The SimulationClock instance associated with this simulation.
+        bodies: Injected dictionary of body data.
     """
 
-    def __init__(self, clock: SimulationClock) -> None:
-        """Initialize Simulation with a clock.
+    def __init__(self, clock: SimulationClock, bodies: dict[str, Any]) -> None:
+        """Initialize Simulation with a clock and bodies.
 
         Args:
             clock: The SimulationClock instance to use.
+            bodies: Injected dictionary of body data.
 
         Returns:
             None
         """
         self.clock = clock
+        self.bodies = bodies
         self._cache_t: float | None = None
         self._cache_state: dict[str, Vec2] | None = None
 
@@ -135,11 +150,21 @@ class Simulation:
         if self._cache_state is not None and self._cache_t == t:
             return self._cache_state.copy()
 
-        state: dict[str, Vec2] = {}
-        for body_name in BODIES:
-            pos = resolve_absolute_position(body_name, t)
-            state[body_name] = pos
+        tick_cache: dict[str, Vec2] = {}
+
+        # Resolve all bodies in the injected registry.
+        # resolve_absolute_position handles its own recursion and internal cache filling.
+        for body_name in self.bodies:
+            if body_name not in tick_cache:
+                resolve_absolute_position(body_name, t, self.bodies, tick_cache)
+
+        # Filter the results to only include bodies present in the injected registry.
+        # This ensures that if resolve_absolute_position injected 'Sun' as a base case
+        # but 'Sun' wasn't in self.bodies, it won't be in the returned state.
+        filtered_state = {
+            name: tick_cache[name] for name in self.bodies if name in tick_cache
+        }
 
         self._cache_t = t
-        self._cache_state = state
-        return state.copy()
+        self._cache_state = filtered_state
+        return filtered_state.copy()

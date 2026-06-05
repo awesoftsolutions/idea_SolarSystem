@@ -11,13 +11,8 @@ orbital offsets and handling unit conversions.
 from typing import Any, TypedDict, cast, NamedTuple
 
 from src.vector import Vec2
-from src.bodies import BODIES
 from src.constants import AU_TO_KM
 from src.orbital import get_heliocentric_coords
-
-# Module-level state (Internal)
-_FRAME_CACHE: dict[str, Vec2] = {}
-_LAST_SIM_TIME: float | None = None
 
 
 class Frame(NamedTuple):
@@ -53,7 +48,11 @@ class FrameNode(TypedDict, total=False):
 
 
 def resolve_absolute_position(
-    body_name: str, t: float, visited: set[str] | None = None
+    body_name: str,
+    t: float,
+    bodies: dict[str, Any],
+    cache: dict[str, Vec2],
+    visited: set[str] | None = None,
 ) -> Vec2:
     """Resolve the absolute (heliocentric) position of a body at simulation time t.
 
@@ -63,65 +62,62 @@ def resolve_absolute_position(
     Args:
         body_name: Name of the body to resolve.
         t: Simulation time.
+        bodies: Injected dictionary of body data.
+        cache: Per-tick cache for storing resolved positions.
         visited: Set of body names already encountered in the current recursive chain.
 
     Returns:
         The absolute position vector in km.
 
     Raises:
-        KeyError: If body_name is not in BODIES.
+        KeyError: If body_name is not in bodies.
         RuntimeError: If a circular dependency is detected (ERR-003).
     """
-    global _LAST_SIM_TIME
+    # 1. Cache Lookup
+    if body_name in cache:
+        return cache[body_name]
 
-    # 1. Cache Invalidation Check
-    if t != _LAST_SIM_TIME:
-        _FRAME_CACHE.clear()
-        _LAST_SIM_TIME = t
-
-    # 2. Cache Lookup
-    if body_name in _FRAME_CACHE:
-        return _FRAME_CACHE[body_name]
-
-    # 3. Initialize visited set
+    # 2. Initialize visited set
     if visited is None:
         visited = set()
 
-    # 4. Cycle Detection
+    # 3. Cycle Detection
     if body_name in visited:
         raise RuntimeError("ERR-003: CIRCULAR_FRAME_DEPENDENCY")
     visited.add(body_name)
 
-    # 5. Base Case (Sun/Root)
+    # 4. Base Case (Sun/Root)
     if body_name == "Sun":
-        return Vec2(0.0, 0.0)
+        result = Vec2(0.0, 0.0)
+        cache[body_name] = result
+        return result
 
-    # 6. Fetch Body Data
-    if body_name not in BODIES:
+    # 5. Fetch Body Data
+    if body_name not in bodies:
         raise KeyError(body_name)
-    body_data = BODIES[body_name]
+    body_data = bodies[body_name]
 
-    # 7. Recursive Step
+    # 6. Recursive Step
     primary_name = body_data.get("primary")
     if not isinstance(primary_name, str):
-        # This should only happen if Sun is misconfigured in BODIES
+        # This should only happen if Sun is misconfigured in bodies
         # but the base case handles "Sun" explicitly.
         # Added for mypy satisfaction.
         parent_pos = Vec2(0.0, 0.0)
     else:
-        parent_pos = resolve_absolute_position(primary_name, t, visited)
+        parent_pos = resolve_absolute_position(primary_name, t, bodies, cache, visited)
 
-    # 8. Calculate Relative Position
+    # 7. Calculate Relative Position
     # Cast to satisfy mypy: body_data is FrameNode which matches get_heliocentric_coords
     rel_pos = get_heliocentric_coords(cast(dict[str, Any], body_data), t)
 
-    # 9. Unit Conversion (AU to KM)
+    # 8. Unit Conversion (AU to KM)
     if primary_name == "Sun":
         rel_pos_km = rel_pos * AU_TO_KM
     else:
         rel_pos_km = rel_pos
 
-    # 10. Composition and Storage
+    # 9. Composition and Storage
     result = parent_pos + rel_pos_km
-    _FRAME_CACHE[body_name] = result
+    cache[body_name] = result
     return result

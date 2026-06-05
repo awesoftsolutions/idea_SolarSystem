@@ -264,16 +264,20 @@ def calculate_depletion(a: float) -> float:
     return 1.0 - max_depletion
 
 
-def generate_asteroid_belt(seed: int, count: int = 1000) -> None:
+def generate_asteroid_belt(seed: int, count: int = 1000) -> dict[str, BodyData]:
     """Procedurally generate a deterministic asteroid belt with Kirkwood gaps.
 
-    Mutates the global BODIES dictionary.
+    Returns a new dictionary of asteroids instead of mutating global state.
 
     Args:
         seed: PRNG seed for determinism.
         count: Number of asteroids to generate.
+
+    Returns:
+        A dictionary mapping asteroid names to their BodyData.
     """
     rng = random.Random(seed)
+    asteroids: dict[str, BodyData] = {}
 
     generated_count = 0
     while generated_count < count:
@@ -292,7 +296,7 @@ def generate_asteroid_belt(seed: int, count: int = 1000) -> None:
             )
             radius = rng.uniform(1.0, 5.0)
 
-            BODIES[name] = {
+            asteroids[name] = {
                 "primary": "Sun",
                 "a": a,
                 "e": e,
@@ -302,3 +306,5 @@ def generate_asteroid_belt(seed: int, count: int = 1000) -> None:
             }
 
             generated_count += 1
+
+    return asteroids
