@@ -1,3 +1,6 @@
+# CHANGELOG:
+# - Sprint 3: Define display neighborhoods and scaling constants.
+
 """Scaling constants for the hierarchical logarithmic scaling system."""
 
 # Distance Scaling Parameters

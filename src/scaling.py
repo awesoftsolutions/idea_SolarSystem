@@ -1,3 +1,6 @@
+# CHANGELOG:
+# - Sprint 3: Implement hierarchical logarithmic mapping and neighborhood logic.
+
 """Core scaling logic for hierarchical logarithmic mapping."""
 
 import math
@@ -19,6 +22,7 @@ from src.viewport import Viewport, world_to_screen
 
 # Module-level state (Internal)
 _WORLD_CACHE: dict[tuple[str, float, float], Vec2] = {}
+_FRAME_CACHE: dict[str, Vec2] = {}
 _LAST_SIM_TIME: float | None = None
 
 # Pre-calculated reference distances for neighborhood scaling
@@ -273,12 +277,17 @@ def map_to_world(
 
     Returns:
         World-space position vector in pixels.
+
+    Raises:
+        KeyError: If body_name is not in BODIES.
+        RuntimeError: If a circular dependency is detected.
     """
     global _LAST_SIM_TIME
 
     # 1. Cache Invalidation Check
     if frame_context.t != _LAST_SIM_TIME:
         _WORLD_CACHE.clear()
+        _FRAME_CACHE.clear()
         _LAST_SIM_TIME = frame_context.t
 
     # 2. Cache Retrieval
@@ -303,7 +312,9 @@ def map_to_world(
         primary_name = str(primary_name_raw)
 
     # 5. Resolve Parent Positions
-    primary_abs_pos = resolve_absolute_position(primary_name, frame_context.t)
+    primary_abs_pos = resolve_absolute_position(
+        primary_name, frame_context.t, BODIES, _FRAME_CACHE
+    )
     primary_frame = Frame(primary_name, frame_context.t)
     primary_world_pos = map_to_world(primary_abs_pos, primary_frame, use_cache)
 
@@ -348,6 +359,10 @@ def map_to_screen(actual_pos: Vec2, frame_context: Frame, viewport: Viewport) ->
 
     Returns:
         Position in screen space (pixels).
+
+    Raises:
+        KeyError: If body_name is not in BODIES.
+        RuntimeError: If a circular dependency is detected.
     """
     # 1. Map to world space (hierarchical log scaling)
     world_pos = map_to_world(actual_pos, frame_context)

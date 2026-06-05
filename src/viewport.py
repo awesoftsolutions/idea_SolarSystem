@@ -1,3 +1,6 @@
+# CHANGELOG:
+# - Sprint 3: Implement Viewport class and coordinate transformations.
+
 """Viewport configuration and coordinate transformations."""
 
 from src.constants import WINDOW_SIZE

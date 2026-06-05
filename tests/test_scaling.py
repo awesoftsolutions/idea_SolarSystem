@@ -86,8 +86,8 @@ def test_map_to_screen_moon_relative_to_earth():
     moon_frame = Frame("Moon", t)
 
     # Physical positions (km)
-    earth_abs = resolve_absolute_position("Earth", t)
-    moon_abs = resolve_absolute_position("Moon", t)
+    earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
+    moon_abs = resolve_absolute_position("Moon", t, BODIES, {})
 
     p_earth = map_to_screen(earth_abs, earth_frame, viewport)
     p_moon = map_to_screen(moon_abs, moon_frame, viewport)
@@ -108,7 +108,7 @@ def test_map_to_screen_planet_relative_to_sun():
     earth_frame = Frame("Earth", t)
 
     # Jupiter at ~5.2 AU
-    jupiter_abs = resolve_absolute_position("Jupiter", t)
+    jupiter_abs = resolve_absolute_position("Jupiter", t, BODIES, {})
     sun_abs = Vec2(0.0, 0.0)
 
     p_sun = map_to_screen(sun_abs, sun_frame, viewport)
@@ -117,7 +117,7 @@ def test_map_to_screen_planet_relative_to_sun():
     dist_screen = (p_jupiter - p_sun).magnitude()
 
     # Expected screen distance should be monotonic with AU
-    earth_abs = resolve_absolute_position("Earth", t)
+    earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
     p_earth = map_to_screen(earth_abs, earth_frame, viewport)
     dist_earth = (p_earth - p_sun).magnitude()
 
@@ -129,7 +129,7 @@ def test_map_to_screen_origin_mapping():
     t = 0.0
 
     # Mock Moon at exactly Earth's position
-    earth_abs = resolve_absolute_position("Earth", t)
+    earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
 
     earth_frame = Frame("Earth", t)
     moon_frame = Frame("Moon", t)
@@ -147,7 +147,7 @@ def test_map_to_screen_monotonicity():
 
     # Use Earth frame to test monotonicity of child offsets
     earth_frame = Frame("Earth", t)
-    earth_abs = resolve_absolute_position("Earth", t)
+    earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
 
     # Body A at distance D, Body B at distance D + epsilon from Earth
     pos_a = earth_abs + Vec2(1000.0, 0.0)
@@ -166,7 +166,7 @@ def test_map_to_screen_high_zoom():
     viewport = Viewport(Vec2(0.0, 0.0), 100.0)
     earth_frame = Frame("Earth", t)
 
-    earth_abs = resolve_absolute_position("Earth", t)
+    earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
 
     p_earth = map_to_screen(earth_abs, earth_frame, viewport)
 
