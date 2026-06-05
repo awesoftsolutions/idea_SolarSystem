@@ -1,6 +1,7 @@
 # CHANGELOG:
 # - Sprint 1: Initialize J2000 reference data for solar system bodies.
 # - Sprint 3: Add BodyData TypedDict for type safety.
+# - Sprint 4: Implement procedural asteroid belt generation with Kirkwood gaps.
 
 """J2000-epoch reference values for the solar system.
 a = semi-major axis (AU for Sun orbits, km for others)
@@ -11,6 +12,8 @@ radius = mean physical radius (km)
 Note: A negative orbital period (T) signifies retrograde motion (e.g., Triton).
 """
 
+import math
+import random
 from typing import TypedDict
 
 
@@ -235,3 +238,67 @@ BODIES: dict[str, BodyData] = {
         "color": (250, 250, 250),
     },
 }
+
+
+def calculate_depletion(a: float) -> float:
+    """Calculate the survival probability of an asteroid at semi-major axis a.
+
+    Uses Gaussian depletion at Kirkwood gaps (2.50, 2.82, 2.96, 3.27 AU).
+
+    Args:
+        a: Semi-major axis in AU.
+
+    Returns:
+        Survival probability in range [0.0, 1.0].
+    """
+    gaps = [2.50, 2.82, 2.96, 3.27]
+    sigma = 0.04  # Even wider gaps for stronger depletion in the bin
+    strength = 0.999  # Near-total depletion at center
+
+    max_depletion = 0.0
+    for gap in gaps:
+        diff = a - gap
+        factor = strength * math.exp(-(diff**2) / (2 * sigma**2))
+        max_depletion = max(max_depletion, factor)
+
+    return 1.0 - max_depletion
+
+
+def generate_asteroid_belt(seed: int, count: int = 1000) -> None:
+    """Procedurally generate a deterministic asteroid belt with Kirkwood gaps.
+
+    Mutates the global BODIES dictionary.
+
+    Args:
+        seed: PRNG seed for determinism.
+        count: Number of asteroids to generate.
+    """
+    rng = random.Random(seed)
+
+    generated_count = 0
+    while generated_count < count:
+        a = rng.uniform(2.1, 3.3)
+        prob = calculate_depletion(a)
+
+        if rng.random() < prob:
+            e = rng.uniform(0.05, 0.30)
+            t_period = a**1.5  # Kepler's 3rd Law: T^2 = a^3 -> T = a^1.5
+
+            name = f"Ast-{str(generated_count).zfill(4)}"
+            color = (
+                rng.randint(150, 220),
+                rng.randint(150, 220),
+                rng.randint(150, 220),
+            )
+            radius = rng.uniform(1.0, 5.0)
+
+            BODIES[name] = {
+                "primary": "Sun",
+                "a": a,
+                "e": e,
+                "T": t_period,
+                "radius": radius,
+                "color": color,
+            }
+
+            generated_count += 1
