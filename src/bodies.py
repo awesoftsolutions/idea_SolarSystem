@@ -2,6 +2,14 @@
 # - Sprint 1: Initialize J2000 reference data for solar system bodies.
 # - Sprint 3: Add BodyData TypedDict for type safety.
 # - Sprint 4: Implement procedural asteroid belt generation with Kirkwood gaps.
+# - Sprint 5: Refactor to provider-based architecture (BodyProvider).
+
+from __future__ import annotations
+
+import math
+import random
+from collections.abc import Iterator
+from typing import Protocol, TypedDict, runtime_checkable
 
 """J2000-epoch reference values for the solar system.
 a = semi-major axis (AU for Sun orbits, km for others)
@@ -11,10 +19,6 @@ radius = mean physical radius (km)
 
 Note: A negative orbital period (T) signifies retrograde motion (e.g., Triton).
 """
-
-import math
-import random
-from typing import TypedDict
 
 
 class BodyData(TypedDict, total=False):
@@ -37,7 +41,61 @@ class BodyData(TypedDict, total=False):
     color: tuple[int, int, int]
 
 
-BODIES: dict[str, BodyData] = {
+@runtime_checkable
+class BodyProvider(Protocol):
+    """Protocol for body data retrieval and grouping."""
+
+    def get_body(self, name: str) -> BodyData:
+        """Return data for a specific body.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            BodyData dictionary.
+
+        Raises:
+            KeyError: If the body name is not found in the provider.
+        """
+        ...
+
+    def list_bodies(self) -> list[str]:
+        """Return names of all individual bodies managed by this provider.
+
+        Returns:
+            List of body name strings.
+        """
+        ...
+
+    def get_groups(self) -> dict[str, list[str]]:
+        """Return semantic groups of bodies (e.g., 'AsteroidBelt').
+
+        Returns:
+            Dictionary mapping group names to lists of body names.
+        """
+        ...
+
+    def __contains__(self, name: str) -> bool:
+        """Check if a body exists in the provider.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            True if the body exists, False otherwise.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over all body names managed by this provider.
+
+        Returns:
+            Iterator of body name strings.
+        """
+        ...
+
+
+_STATIC_BODIES_DATA: dict[str, BodyData] = {
     "Sun": {"radius": 696340.0, "color": (255, 255, 0), "primary": None},
     # Bodies orbiting the Sun
     # High-precision J2000 semi-major axis (a) values.
@@ -308,3 +366,221 @@ def generate_asteroid_belt(seed: int, count: int = 1000) -> dict[str, BodyData]:
             generated_count += 1
 
     return asteroids
+
+
+class StaticBodyProvider:
+    """Wraps a static dictionary of BodyData."""
+
+    def __init__(self, data: dict[str, BodyData]) -> None:
+        """Initialize with a dictionary of body data.
+
+        Args:
+            data: Dictionary mapping body names to BodyData.
+
+        Returns:
+            None
+        """
+        self._data = data
+
+    def get_body(self, name: str) -> BodyData:
+        """Return data for a specific body.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            BodyData dictionary.
+
+        Raises:
+            KeyError: If the body name is not found.
+        """
+        return self._data[name]
+
+    def list_bodies(self) -> list[str]:
+        """Return names of all individual bodies.
+
+        Returns:
+            List of body name strings.
+        """
+        return list(self._data.keys())
+
+    def get_groups(self) -> dict[str, list[str]]:
+        """Return semantic groups of bodies. Static provider has no groups.
+
+        Returns:
+            Empty dictionary.
+        """
+        return {}
+
+    def __contains__(self, name: str) -> bool:
+        """Check if a body exists in the provider.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            True if the body exists, False otherwise.
+        """
+        return name in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over all body names.
+
+        Returns:
+            Iterator of body name strings.
+        """
+        return iter(self._data)
+
+
+class AsteroidBeltProvider:
+    """Procedurally generates an asteroid belt and exposes it as a group."""
+
+    def __init__(self, seed: int, count: int = 1000) -> None:
+        """Initialize and generate the asteroid belt.
+
+        Args:
+            seed: PRNG seed for deterministic generation.
+            count: Number of asteroids to generate.
+
+        Returns:
+            None
+        """
+        self._asteroids = generate_asteroid_belt(seed, count)
+
+    def get_body(self, name: str) -> BodyData:
+        """Return data for a specific asteroid.
+
+        Args:
+            name: Unique identifier of the asteroid.
+
+        Returns:
+            BodyData dictionary.
+
+        Raises:
+            KeyError: If the asteroid name is not found.
+        """
+        return self._asteroids[name]
+
+    def list_bodies(self) -> list[str]:
+        """Return names of all generated asteroids.
+
+        Returns:
+            List of asteroid name strings.
+        """
+        return list(self._asteroids.keys())
+
+    def get_groups(self) -> dict[str, list[str]]:
+        """Return semantic groups. Asteroids are grouped under 'AsteroidBelt'.
+
+        Returns:
+            Dictionary mapping 'AsteroidBelt' to the list of asteroid names.
+        """
+        return {"AsteroidBelt": self.list_bodies()}
+
+    def __contains__(self, name: str) -> bool:
+        """Check if an asteroid exists in the provider.
+
+        Args:
+            name: Unique identifier of the asteroid.
+
+        Returns:
+            True if the asteroid exists, False otherwise.
+        """
+        return name in self._asteroids
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over all asteroid names.
+
+        Returns:
+            Iterator of asteroid name strings.
+        """
+        return iter(self._asteroids)
+
+
+class CompositeBodyProvider:
+    """Aggregates multiple providers with priority-based resolution."""
+
+    def __init__(self, providers: list[BodyProvider]) -> None:
+        """Initialize with a list of providers.
+
+        Args:
+            providers: List of BodyProvider instances.
+
+        Returns:
+            None
+        """
+        self._providers = providers
+
+    def get_body(self, name: str) -> BodyData:
+        """Return data for a specific body, searching providers in order.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            BodyData dictionary.
+
+        Raises:
+            KeyError: If the body name is not found in any provider.
+        """
+        for provider in self._providers:
+            if name in provider:
+                return provider.get_body(name)
+        raise KeyError(name)
+
+    def list_bodies(self) -> list[str]:
+        """Return names of all individual bodies from all providers.
+
+        Returns:
+            Sorted list of unique body name strings.
+        """
+        bodies: set[str] = set()
+        for provider in self._providers:
+            bodies.update(provider.list_bodies())
+        return sorted(list(bodies))
+
+    def get_groups(self) -> dict[str, list[str]]:
+        """Return semantic groups merged from all providers.
+
+        Returns:
+            Dictionary mapping group names to lists of body names.
+        """
+        groups: dict[str, list[str]] = {}
+        for provider in self._providers:
+            for group_name, members in provider.get_groups().items():
+                if group_name in groups:
+                    groups[group_name].extend(members)
+                else:
+                    groups[group_name] = list(members)
+        return groups
+
+    def __contains__(self, name: str) -> bool:
+        """Check if a body exists in any of the providers.
+
+        Args:
+            name: Unique identifier of the body.
+
+        Returns:
+            True if the body exists, False otherwise.
+        """
+        for provider in self._providers:
+            if name in provider:
+                return True
+        return False
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over all unique body names from all providers.
+
+        Returns:
+            Iterator of body name strings.
+        """
+        return iter(self.list_bodies())
+
+
+# Initialize the global registry
+BODIES: BodyProvider = CompositeBodyProvider(
+    [
+        StaticBodyProvider(_STATIC_BODIES_DATA),
+        AsteroidBeltProvider(seed=42, count=1000),
+    ]
+)

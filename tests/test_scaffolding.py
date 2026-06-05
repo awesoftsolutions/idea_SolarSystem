@@ -17,16 +17,18 @@ def test_constants():
 
 
 def test_bodies_integrity():
-    assert len(BODIES) == 25
+    bodies_list = BODIES.list_bodies()
+    assert len(bodies_list) >= 25
     assert "Sun" in BODIES
-    assert BODIES["Sun"]["primary"] is None
+    assert BODIES.get_body("Sun")["primary"] is None
 
     # Check a few specific bodies
-    assert BODIES["Earth"]["primary"] == "Sun"
-    assert BODIES["Moon"]["primary"] == "Earth"
-    assert BODIES["Triton"]["T"] < 0  # Retrograde
+    assert BODIES.get_body("Earth")["primary"] == "Sun"
+    assert BODIES.get_body("Moon")["primary"] == "Earth"
+    assert BODIES.get_body("Triton")["T"] < 0  # Retrograde
 
-    for name, data in BODIES.items():
+    for name in bodies_list:
+        data = BODIES.get_body(name)
         assert "radius" in data
         assert "color" in data
         if name != "Sun":

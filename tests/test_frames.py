@@ -10,7 +10,10 @@ from src.constants import AU_TO_KM
 def test_resolve_sun_root() -> None:
     """Scenario A: Root Resolution (Sun returns zero vector)."""
     # resolve_absolute_position now requires bodies and cache
-    bodies = {"Sun": {"primary": None}}
+    from src.bodies import BodyData, StaticBodyProvider
+
+    bodies_data: dict[str, BodyData] = {"Sun": {"primary": None}}
+    bodies = StaticBodyProvider(bodies_data)
     cache: dict[str, Vec2] = {}
     assert resolve_absolute_position("Sun", 0.0, bodies=bodies, cache=cache) == Vec2(
         0.0, 0.0
@@ -20,11 +23,14 @@ def test_resolve_sun_root() -> None:
 def test_resolve_moon_recursive() -> None:
     """Scenario B: Multi-level Recursive Resolution (Moon heliocentric position)."""
     # Mock BODIES to ensure Moon -> Earth -> Sun
-    mock_bodies = {
+    from src.bodies import BodyData, StaticBodyProvider
+
+    mock_bodies_data: dict[str, BodyData] = {
         "Sun": {"primary": None},
         "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
         "Moon": {"primary": "Earth", "a": 384400.0, "e": 0.0, "T": 27.32},
     }
+    mock_bodies = StaticBodyProvider(mock_bodies_data)
 
     # Mock get_heliocentric_coords
     # Earth relative to Sun: 1.0 AU
@@ -32,9 +38,9 @@ def test_resolve_moon_recursive() -> None:
     with mock.patch("src.frames.get_heliocentric_coords") as mock_coords:
 
         def side_effect(data: Any, t: float) -> Vec2:
-            if data == mock_bodies["Earth"]:
+            if data == mock_bodies_data["Earth"]:
                 return Vec2(1.0, 0.0)
-            if data == mock_bodies["Moon"]:
+            if data == mock_bodies_data["Moon"]:
                 return Vec2(0.0, 384400.0)
             return Vec2(0.0, 0.0)
 
@@ -54,7 +60,13 @@ def test_resolve_moon_recursive() -> None:
 
 def test_resolve_circular_dependency() -> None:
     """Scenario C: Circular Dependency Detection (Raise ERR-003)."""
-    mock_bodies = {"A": {"primary": "B"}, "B": {"primary": "A"}}
+    from src.bodies import BodyData, StaticBodyProvider
+
+    mock_bodies_data: dict[str, BodyData] = {
+        "A": {"primary": "B"},
+        "B": {"primary": "A"},
+    }
+    mock_bodies = StaticBodyProvider(mock_bodies_data)
 
     with pytest.raises(RuntimeError, match="ERR-003: CIRCULAR_FRAME_DEPENDENCY"):
         resolve_absolute_position("A", 0.0, bodies=mock_bodies, cache={})
@@ -62,10 +74,13 @@ def test_resolve_circular_dependency() -> None:
 
 def test_unit_conversion_boundary() -> None:
     """Scenario D: Unit Conversion Boundary."""
-    mock_bodies = {
+    from src.bodies import BodyData, StaticBodyProvider
+
+    mock_bodies_data: dict[str, BodyData] = {
         "Sun": {"primary": None},
         "Mercury": {"primary": "Sun", "a": 0.387, "e": 0.0, "T": 0.24},
     }
+    mock_bodies = StaticBodyProvider(mock_bodies_data)
 
     with mock.patch("src.frames.get_heliocentric_coords") as mock_coords:
         mock_coords.return_value = Vec2(0.387, 0.0)
@@ -77,10 +92,13 @@ def test_unit_conversion_boundary() -> None:
 
 def test_frames_dependency_injection() -> None:
     """Verify that resolve_absolute_position uses the provided bodies and cache."""
-    bodies = {
+    from src.bodies import BodyData, StaticBodyProvider
+
+    bodies_data: dict[str, BodyData] = {
         "Sun": {"primary": None},
         "Custom": {"primary": "Sun", "a": 10.0, "e": 0.0, "T": 100.0},
     }
+    bodies = StaticBodyProvider(bodies_data)
     cache = {"Custom": Vec2(123, 456)}
     # Should return cached value immediately
     pos = resolve_absolute_position("Custom", 0.0, bodies=bodies, cache=cache)
@@ -89,11 +107,14 @@ def test_frames_dependency_injection() -> None:
 
 def test_resolve_caching_behavior() -> None:
     """AC1 & AC2: Verify caching behavior using the injected cache."""
-    mock_bodies = {
+    from src.bodies import BodyData, StaticBodyProvider
+
+    mock_bodies_data: dict[str, BodyData] = {
         "Sun": {"primary": None},
         "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
         "Moon": {"primary": "Earth", "a": 384400.0, "e": 0.0, "T": 27.32},
     }
+    mock_bodies = StaticBodyProvider(mock_bodies_data)
 
     t = 9999.0
     cache: dict[str, Vec2] = {}
@@ -164,11 +185,14 @@ def test_moon_earth_sun_stability() -> None:
 
 def test_intermediate_node_caching() -> None:
     """Verify that resolving a child body populates the cache for its parent."""
-    mock_bodies = {
+    from src.bodies import BodyData, StaticBodyProvider
+
+    mock_bodies_data: dict[str, BodyData] = {
         "Sun": {"primary": None},
         "Earth": {"primary": "Sun", "a": 1.0, "e": 0.0, "T": 1.0},
         "Moon": {"primary": "Earth", "a": 384400.0, "e": 0.0, "T": 27.32},
     }
+    mock_bodies = StaticBodyProvider(mock_bodies_data)
 
     t = 123.456
     cache: dict[str, Vec2] = {}

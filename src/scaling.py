@@ -1,24 +1,27 @@
 # CHANGELOG:
 # - Sprint 3: Implement hierarchical logarithmic mapping and neighborhood logic.
+# - Sprint 5: Update for BodyProvider API.
 
-"""Core scaling logic for hierarchical logarithmic mapping."""
+from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, cast
 
+from src.bodies import BODIES, BodyData
 from src.constants import AU_TO_KM
 from src.frames import Frame, resolve_absolute_position
-from src.vector import Vec2
 from src.scaling_constants import (
-    DISTANCE_LOG_SCALE_FACTOR,
+    DISPLAY_NEIGHBORHOODS,
     DISTANCE_LOG_K,
+    DISTANCE_LOG_SCALE_FACTOR,
+    LOG_BASE_DISTANCE,
     SIZE_LOG_K,
     SIZE_LOG_OFFSET,
-    DISPLAY_NEIGHBORHOODS,
-    LOG_BASE_DISTANCE,
 )
-from src.bodies import BODIES
+from src.vector import Vec2
 from src.viewport import Viewport, world_to_screen
+
+"""Core scaling logic for hierarchical logarithmic mapping."""
 
 # Module-level state (Internal)
 _WORLD_CACHE: dict[tuple[str, float, float], Vec2] = {}
@@ -35,23 +38,32 @@ def _initialize_neighborhood_refs() -> None:
     """Pre-calculate reference distances for all primaries in BODIES.
 
     This avoids O(N) scans during simulation.
+
+    Returns:
+        None
     """
     # 1. Initialize Sun
     _NEIGHBORHOOD_D_REF["Sun"] = 30.0
 
     # 2. Find all other primaries
+    body_names = BODIES.list_bodies()
+
     primaries = {
-        data["primary"] for data in BODIES.values() if data.get("primary") is not None
+        BODIES.get_body(name).get("primary")
+        for name in body_names
+        if BODIES.get_body(name).get("primary") is not None
     }
 
     # 3. Calculate max 'a' for each primary's children
     for primary in primaries:
         if primary == "Sun" or primary is None:
             continue
+
         children_a = [
-            float(data["a"])
-            for data in BODIES.values()
-            if data.get("primary") == primary and "a" in data
+            float(BODIES.get_body(name)["a"])
+            for name in body_names
+            if BODIES.get_body(name).get("primary") == primary
+            and "a" in BODIES.get_body(name)
         ]
         _NEIGHBORHOOD_D_REF[primary] = max(children_a) if children_a else 1000.0
 
@@ -223,21 +235,22 @@ def get_body_scale_factor(a: float, primary_name: str) -> float:
     return d_scaled / a
 
 
-def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
+def scale_orbit_geometry(elements: BodyData) -> dict[str, Any]:
     """Scale orbital ellipse geometry while preserving eccentricity and orientation.
 
     Args:
-        elements: Dictionary containing 'a', 'e', 'longitude_of_perihelion', and 'primary'.
+        elements: BodyData dictionary containing 'a', 'e', 'longitude_of_perihelion', and 'primary'.
 
     Returns:
         Dictionary with 'a_v', 'b_v', 'center_offset' (Vec2), and 'orientation'.
     """
-    a = elements["a"]
-    e = elements["e"]
-    omega = elements.get("longitude_of_perihelion", 0.0)
+    a = elements.get("a", 0.0)
+    e = elements.get("e", 0.0)
+    omega = cast(float, elements.get("longitude_of_perihelion", 0.0))
     primary_name = elements.get("primary", "Sun")
 
     # 1. Calculate visual semi-major axis using body-specific linear scale factor
+    assert primary_name is not None
     k_linear = get_body_scale_factor(a, primary_name)
     a_v = a * k_linear
 
@@ -305,7 +318,8 @@ def map_to_world(
             return sun_pos
 
     # 4. Identify Parent Frame
-    body_data = BODIES[frame_context.name]
+    body_data = BODIES.get_body(frame_context.name)
+
     primary_name_raw = body_data.get("primary")
     primary_name: str = "Sun"
     if isinstance(primary_name_raw, str):
@@ -315,6 +329,7 @@ def map_to_world(
     primary_abs_pos = resolve_absolute_position(
         primary_name, frame_context.t, BODIES, _FRAME_CACHE
     )
+    assert primary_name is not None
     primary_frame = Frame(primary_name, frame_context.t)
     primary_world_pos = map_to_world(primary_abs_pos, primary_frame, use_cache)
 
@@ -323,7 +338,11 @@ def map_to_world(
 
     # 7. Apply Body-Specific Linear Scaling
     # Retrieve semi-major axis 'a' for the body
-    body_data = BODIES.get(frame_context.name, {})
+    try:
+        body_data = BODIES.get_body(frame_context.name)
+    except KeyError:
+        body_data = {}  # type: ignore
+
     a = body_data.get("a", 0.0)
 
     # Convert relative_offset to AU if primary is Sun

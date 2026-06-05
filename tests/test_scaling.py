@@ -86,6 +86,7 @@ def test_map_to_screen_moon_relative_to_earth():
     moon_frame = Frame("Moon", t)
 
     # Physical positions (km)
+    # BODIES is now a provider
     earth_abs = resolve_absolute_position("Earth", t, BODIES, {})
     moon_abs = resolve_absolute_position("Moon", t, BODIES, {})
 
@@ -108,6 +109,7 @@ def test_map_to_screen_planet_relative_to_sun():
     earth_frame = Frame("Earth", t)
 
     # Jupiter at ~5.2 AU
+    # BODIES is now a provider
     jupiter_abs = resolve_absolute_position("Jupiter", t, BODIES, {})
     sun_abs = Vec2(0.0, 0.0)
 
@@ -306,7 +308,8 @@ def test_orbit_path_alignment():
     t = 0.0
     # Use Mercury (high eccentricity e=0.2) for testing
     body_name = "Mercury"
-    elements = BODIES[body_name]
+    # BODIES is now a provider
+    elements = BODIES.get_body(body_name)
 
     # 1. Get visual orbit geometry
     orbit_v = scale_orbit_geometry(elements)

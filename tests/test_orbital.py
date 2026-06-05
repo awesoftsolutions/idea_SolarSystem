@@ -151,7 +151,8 @@ def test_kepler_second_law_functional():
     interval_days = 30.0
     interval_years = interval_days / 365.25
 
-    for name, data in BODIES.items():
+    for name in BODIES.list_bodies():
+        data = BODIES.get_body(name)
         if data.get("primary") != "Sun" or name == "Sun":
             continue
 
@@ -174,7 +175,8 @@ def test_kepler_third_law_functional():
     """Verify Kepler's 3rd Law: T^2 / a^3 is constant for heliocentric bodies."""
     ratios = {}
 
-    for name, data in BODIES.items():
+    for name in BODIES.list_bodies():
+        data = BODIES.get_body(name)
         if data.get("primary") == "Sun":
             a = data["a"]
             t = data["T"]
@@ -196,7 +198,7 @@ def test_kepler_third_law_functional():
 def test_get_heliocentric_coords_large_t():
     """Verify precision for very large simulation times."""
     # Use Earth elements
-    elements = BODIES["Earth"]
+    elements = BODIES.get_body("Earth")
     period = elements["T"]
 
     # Position at t=0

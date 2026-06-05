@@ -30,8 +30,12 @@ class TestSimulationCaching:
         # to resolve_absolute_position.
         # If Sun is in bodies, it is resolved via resolve_absolute_position.
         # If not, it is injected into tick_cache directly.
-        expected_calls = len([b for b in simulation.bodies if b != "Sun"])
-        if "Sun" in simulation.bodies:
+        from src.bodies import BodyProvider
+
+        assert isinstance(simulation.bodies, BodyProvider)
+        body_names = simulation.bodies.list_bodies()
+        expected_calls = len([b for b in body_names if b != "Sun"])
+        if "Sun" in body_names:
             expected_calls += 1
 
         with patch("src.simulation.resolve_absolute_position") as mock_resolve:
@@ -53,8 +57,12 @@ class TestSimulationCaching:
 
     def test_cache_invalidation_ac2(self, simulation: Simulation) -> None:
         """Verify cache is invalidated when simulation time t changes (AC2)."""
-        expected_calls = len([b for b in simulation.bodies if b != "Sun"])
-        if "Sun" in simulation.bodies:
+        from src.bodies import BodyProvider
+
+        assert isinstance(simulation.bodies, BodyProvider)
+        body_names = simulation.bodies.list_bodies()
+        expected_calls = len([b for b in body_names if b != "Sun"])
+        if "Sun" in body_names:
             expected_calls += 1
 
         with patch("src.simulation.resolve_absolute_position") as mock_resolve:
@@ -134,18 +142,19 @@ class TestSimulation:
         """Verify get_system_state returns a dict of body names to Vec2."""
         state = simulation.get_system_state(0.0)
         assert isinstance(state, dict)
-        for name in simulation.bodies:
+        body_names = simulation.bodies.list_bodies()
+        for name in body_names:
             assert name in state
             assert isinstance(state[name], Vec2)
         # Sun should be in state if it's in the bodies registry
-        if "Sun" in simulation.bodies:
+        if "Sun" in body_names:
             assert "Sun" in state
             assert isinstance(state["Sun"], Vec2)
 
     def test_state_retrieval_root(self, simulation):
         """Verify Sun (root) is always at (0, 0)."""
         state = simulation.get_system_state(123.45)
-        if "Sun" in simulation.bodies:
+        if "Sun" in simulation.bodies.list_bodies():
             assert state["Sun"] == Vec2(0, 0)
 
     def test_state_retrieval_nested(self, simulation):
@@ -154,16 +163,18 @@ class TestSimulation:
         state = simulation.get_system_state(t)
         # resolve_absolute_position now requires bodies and cache
         # We must include "Sun" in the bodies dict for resolution to work
-        bodies = BODIES.copy()
+        # Note: BODIES is now a provider, but resolve_absolute_position expects a provider.
         expected_moon_pos = resolve_absolute_position(
-            "Moon", t, bodies=bodies, cache={}
+            "Moon", t, bodies=BODIES, cache={}
         )
         assert state["Moon"] == expected_moon_pos
 
     def test_simulation_dependency_injection(self):
         """Verify that Simulation only resolves bodies provided in its constructor."""
+        from src.bodies import StaticBodyProvider
+
         clock = SimulationClock()
-        custom_bodies = {
+        custom_bodies_data = {
             "Mars": {
                 "a": 1.523662,
                 "e": 0.093412,
@@ -173,6 +184,7 @@ class TestSimulation:
                 "color": (226, 110, 71),
             },
         }
+        custom_bodies = StaticBodyProvider(custom_bodies_data)
         sim = Simulation(clock=clock, bodies=custom_bodies)
         state = sim.get_system_state(0.0)
 
@@ -192,12 +204,12 @@ class TestSimulation:
     def test_simulation_side_effect_free(self, simulation):
         """Verify state calculation does not modify injected bodies or Simulation state."""
         # Snapshot bodies count and clock time
-        initial_bodies_count = len(simulation.bodies)
+        initial_bodies_count = len(simulation.bodies.list_bodies())
         initial_time = simulation.clock.get_time()
 
         simulation.get_system_state(10.0)
 
-        assert len(simulation.bodies) == initial_bodies_count
+        assert len(simulation.bodies.list_bodies()) == initial_bodies_count
         assert simulation.clock.get_time() == initial_time
 
     def test_cache_integrity(self, simulation: Simulation) -> None:

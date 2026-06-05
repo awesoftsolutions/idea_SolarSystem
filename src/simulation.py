@@ -1,17 +1,24 @@
 # CHANGELOG:
 # - Sprint 4: Implement core simulation engine with SimulationClock and Simulation state provider.
 # - Sprint 4: Implement per-tick state caching and Decimal-based deterministic clock.
+# - Sprint 5: Update for BodyProvider API.
+
+from __future__ import annotations
+
+import typing
+from decimal import Decimal
+
+from src.frames import resolve_absolute_position
+from src.vector import Vec2
+
+if typing.TYPE_CHECKING:
+    from src.bodies import BodyProvider
 
 """Core simulation engine for time management and state retrieval.
 
 This module provides the SimulationClock for managing simulation time
 and the Simulation class for calculating the system state at any given time.
 """
-
-from typing import Any
-from decimal import Decimal
-from src.vector import Vec2
-from src.frames import resolve_absolute_position
 
 
 class SimulationClock:
@@ -116,15 +123,15 @@ class Simulation:
 
     Attributes:
         clock: The SimulationClock instance associated with this simulation.
-        bodies: Injected dictionary of body data.
+        bodies: Injected BodyProvider.
     """
 
-    def __init__(self, clock: SimulationClock, bodies: dict[str, Any]) -> None:
+    def __init__(self, clock: SimulationClock, bodies: BodyProvider) -> None:
         """Initialize Simulation with a clock and bodies.
 
         Args:
             clock: The SimulationClock instance to use.
-            bodies: Injected dictionary of body data.
+            bodies: Injected BodyProvider.
 
         Returns:
             None
@@ -154,7 +161,8 @@ class Simulation:
 
         # Resolve all bodies in the injected registry.
         # resolve_absolute_position handles its own recursion and internal cache filling.
-        for body_name in self.bodies:
+        body_names = self.bodies.list_bodies()
+        for body_name in body_names:
             if body_name not in tick_cache:
                 resolve_absolute_position(body_name, t, self.bodies, tick_cache)
 
@@ -162,7 +170,7 @@ class Simulation:
         # This ensures that if resolve_absolute_position injected 'Sun' as a base case
         # but 'Sun' wasn't in self.bodies, it won't be in the returned state.
         filtered_state = {
-            name: tick_cache[name] for name in self.bodies if name in tick_cache
+            name: tick_cache[name] for name in body_names if name in tick_cache
         }
 
         self._cache_t = t

@@ -6,7 +6,7 @@ and integration with the hierarchical frame system.
 
 import pytest
 
-from src.bodies import BODIES, BodyData, calculate_depletion
+from src.bodies import BODIES, calculate_depletion, StaticBodyProvider
 from src.constants import AU_TO_KM
 from src.frames import resolve_absolute_position
 from src.vector import Vec2
@@ -19,9 +19,9 @@ except ImportError:
 
 
 @pytest.fixture
-def base_bodies() -> dict[str, BodyData]:
+def base_bodies() -> StaticBodyProvider:
     """Provides a base registry containing only the Sun."""
-    return {"Sun": BODIES["Sun"].copy()}
+    return StaticBodyProvider({"Sun": BODIES.get_body("Sun").copy()})
 
 
 def test_generator_exists() -> None:
@@ -138,17 +138,20 @@ def test_belt_boundaries() -> None:
 
 def test_global_bodies_unchanged() -> None:
     """Verify that the global BODIES registry is not mutated by the generator."""
-    original_state = BODIES.copy()
+    original_bodies = BODIES.list_bodies()
     generate_asteroid_belt(seed=42, count=10)
-    assert BODIES == original_state, "Global BODIES registry was mutated by generator"
+    assert (
+        BODIES.list_bodies() == original_bodies
+    ), "Global BODIES registry was mutated by generator"
 
 
-def test_frame_resolution_for_asteroids(base_bodies: dict[str, BodyData]) -> None:
+def test_frame_resolution_for_asteroids(base_bodies: StaticBodyProvider) -> None:
     """Verify that generated asteroids are correctly resolved by the frame system."""
     asteroids = generate_asteroid_belt(seed=1, count=10)
 
     # Inject asteroids into the local base_bodies registry (DI pattern)
-    base_bodies.update(asteroids)
+    for name, data in asteroids.items():
+        base_bodies._data[name] = data
 
     # Pick the first asteroid
     ast_names = [name for name in asteroids.keys() if name.startswith("Ast-")]

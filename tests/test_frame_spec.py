@@ -1,6 +1,5 @@
 from src.constants import AU_TO_KM
-from src.frames import FrameNode
-from src.bodies import BODIES
+from src.bodies import BODIES, BodyData
 
 
 def test_au_to_km_value():
@@ -9,11 +8,11 @@ def test_au_to_km_value():
 
 
 def test_frame_node_schema() -> None:
-    """Verify FrameNode structure against J2000 data schema in src/bodies.py."""
+    """Verify BodyData structure against J2000 data schema in src/bodies.py."""
     # Example check against Earth
-    earth_data = BODIES["Earth"]
-    # FrameNode is TypedDict(total=False), so we check if fields exist and match types
-    _node: FrameNode = earth_data
+    earth_data = BODIES.get_body("Earth")
+    # BodyData is TypedDict(total=False), so we check if fields exist and match types
+    _node: BodyData = earth_data
     assert "primary" in earth_data
     assert "a" in earth_data
     assert "e" in earth_data

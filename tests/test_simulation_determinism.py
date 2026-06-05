@@ -4,28 +4,36 @@ This suite verifies that the simulation engine adheres to DR-003 (Pure Function 
 and maintains mathematical integrity across forward and backward time flow.
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
-from src.simulation import Simulation, SimulationClock
+
 from src.bodies import BODIES, generate_asteroid_belt
 from src.constants import SOLVER_TOLERANCE
+from src.simulation import Simulation, SimulationClock
+
+if TYPE_CHECKING:
+    from src.bodies import StaticBodyProvider
 
 
 @pytest.fixture(scope="session")
-def test_bodies() -> dict:
+def test_bodies() -> "StaticBodyProvider":
     """Initialize a deterministic set of bodies for the entire test session.
 
     Returns:
-        A dictionary containing the base BODIES plus 100 generated asteroids.
+        A StaticBodyProvider containing the base BODIES plus 100 generated asteroids.
     """
     # generate_asteroid_belt now returns a dict instead of mutating global state
+    from src.bodies import StaticBodyProvider
+
     asteroids = generate_asteroid_belt(seed=42, count=100)
-    bodies = BODIES.copy()
-    bodies.update(asteroids)
-    return bodies
+    bodies_data = {name: BODIES.get_body(name) for name in BODIES.list_bodies()}
+    bodies_data.update(asteroids)
+    return StaticBodyProvider(bodies_data)
 
 
 @pytest.fixture
-def sim(test_bodies: dict) -> Simulation:
+def sim(test_bodies: "StaticBodyProvider") -> Simulation:
     """Provide a fresh Simulation instance with a default clock and injected bodies.
 
     Returns:

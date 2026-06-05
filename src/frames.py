@@ -1,5 +1,18 @@
 # CHANGELOG:
 # - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
+# - Sprint 4: Refactor resolve_absolute_position for Dependency Injection and local caching.
+# - Sprint 5: Update for BodyProvider API.
+
+from __future__ import annotations
+
+import typing
+
+from src.constants import AU_TO_KM
+from src.orbital import get_heliocentric_coords
+from src.vector import Vec2
+
+if typing.TYPE_CHECKING:
+    from src.bodies import BodyProvider
 
 """Hierarchical reference frame composition.
 
@@ -8,14 +21,8 @@ position of bodies in a hierarchical system by recursively summing relative
 orbital offsets and handling unit conversions.
 """
 
-from typing import Any, TypedDict, cast, NamedTuple
 
-from src.vector import Vec2
-from src.constants import AU_TO_KM
-from src.orbital import get_heliocentric_coords
-
-
-class Frame(NamedTuple):
+class Frame(typing.NamedTuple):
     """Reference frame context for coordinate mapping.
 
     Attributes:
@@ -27,30 +34,10 @@ class Frame(NamedTuple):
     t: float
 
 
-class FrameNode(TypedDict, total=False):
-    """Data contract for a reference frame node.
-
-    Attributes:
-        primary: Name of the parent body, or None for the root (Sun).
-        a: Semi-major axis (AU for Sun-primary, km otherwise).
-        e: Eccentricity.
-        T: Orbital period (years for Sun-primary, days otherwise).
-        radius: Mean physical radius in km.
-        color: RGB tuple for visualization.
-    """
-
-    primary: str | None
-    a: float
-    e: float
-    T: float
-    radius: float
-    color: tuple[int, int, int]
-
-
 def resolve_absolute_position(
     body_name: str,
     t: float,
-    bodies: dict[str, Any],
+    bodies: BodyProvider,
     cache: dict[str, Vec2],
     visited: set[str] | None = None,
 ) -> Vec2:
@@ -62,7 +49,7 @@ def resolve_absolute_position(
     Args:
         body_name: Name of the body to resolve.
         t: Simulation time.
-        bodies: Injected dictionary of body data.
+        bodies: Injected BodyProvider.
         cache: Per-tick cache for storing resolved positions.
         visited: Set of body names already encountered in the current recursive chain.
 
@@ -95,7 +82,8 @@ def resolve_absolute_position(
     # 5. Fetch Body Data
     if body_name not in bodies:
         raise KeyError(body_name)
-    body_data = bodies[body_name]
+
+    body_data = bodies.get_body(body_name)
 
     # 6. Recursive Step
     primary_name = body_data.get("primary")
@@ -108,8 +96,10 @@ def resolve_absolute_position(
         parent_pos = resolve_absolute_position(primary_name, t, bodies, cache, visited)
 
     # 7. Calculate Relative Position
-    # Cast to satisfy mypy: body_data is FrameNode which matches get_heliocentric_coords
-    rel_pos = get_heliocentric_coords(cast(dict[str, Any], body_data), t)
+    # Cast to satisfy mypy: body_data matches get_heliocentric_coords signature
+    rel_pos = get_heliocentric_coords(
+        typing.cast(typing.Dict[str, typing.Any], body_data), t
+    )
 
     # 8. Unit Conversion (AU to KM)
     if primary_name == "Sun":
