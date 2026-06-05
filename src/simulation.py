@@ -2,6 +2,7 @@
 # - Sprint 4: Implement core simulation engine with SimulationClock and Simulation state provider.
 # - Sprint 4: Implement per-tick state caching and Decimal-based deterministic clock.
 # - Sprint 5: Update for BodyProvider API.
+# - Sprint 6: Implement predictive path projection (get_future_path) and optimize projection cache.
 
 from __future__ import annotations
 
@@ -141,6 +142,25 @@ class Simulation:
         self._cache_t: float | None = None
         self._cache_state: dict[str, Vec2] | None = None
 
+        # Persistent projection cache (DR-016)
+        self._rel_pos_cache: dict[tuple[float, float, float, float], Vec2] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
+
+    def get_cache_metrics(self) -> dict[str, int | float]:
+        """Return hit rate and raw metrics for the projection cache.
+
+        Returns:
+            A dictionary containing 'hits', 'misses', and 'hit_rate'.
+        """
+        total = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total if total > 0 else 0.0
+        return {
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "hit_rate": hit_rate,
+        }
+
     def get_system_state(self, t: float) -> dict[str, Vec2]:
         """Calculate the absolute positions of all bodies at time t.
 
@@ -157,6 +177,12 @@ class Simulation:
         if self._cache_state is not None and self._cache_t == t:
             return self._cache_state.copy()
 
+        def _record_cache_hit() -> None:
+            self._cache_hits += 1
+
+        def _record_cache_miss() -> None:
+            self._cache_misses += 1
+
         tick_cache: dict[str, Vec2] = {}
 
         # Resolve all bodies in the injected registry.
@@ -164,7 +190,15 @@ class Simulation:
         body_names = self.bodies.list_bodies()
         for body_name in body_names:
             if body_name not in tick_cache:
-                resolve_absolute_position(body_name, t, self.bodies, tick_cache)
+                resolve_absolute_position(
+                    body_name,
+                    t,
+                    self.bodies,
+                    tick_cache,
+                    rel_pos_cache=self._rel_pos_cache,
+                    on_cache_hit=_record_cache_hit,
+                    on_cache_miss=_record_cache_miss,
+                )
 
         # Filter the results to only include bodies present in the injected registry.
         # This ensures that if resolve_absolute_position injected 'Sun' as a base case
@@ -180,7 +214,7 @@ class Simulation:
     def get_future_path(
         self, body_name: str, t_start: float, duration: float, steps: int
     ) -> list[Vec2]:
-        """Calculate a list of future positions for a specific body.
+        """Calculate a list of future positions for a specific body with caching.
 
         Args:
             body_name: The name of the body to project.
@@ -199,15 +233,29 @@ class Simulation:
 
         dt = duration / steps
         path: list[Vec2] = []
+
+        def _record_cache_hit() -> None:
+            self._cache_hits += 1
+
+        def _record_cache_miss() -> None:
+            self._cache_misses += 1
+
+        # Use an empty tick cache per step to avoid polluting the main simulation cache
+        # while still allowing resolve_absolute_position to use the persistent cache.
         tick_cache: dict[str, Vec2] = {}
 
         for i in range(steps + 1):
             t_future = t_start + (i * dt)
-            # Use an empty cache to ensure fresh calculation per point
-            # and avoid polluting the main simulation cache.
             tick_cache.clear()
+
             pos = resolve_absolute_position(
-                body_name, t_future, self.bodies, tick_cache
+                body_name,
+                t_future,
+                self.bodies,
+                tick_cache,
+                rel_pos_cache=self._rel_pos_cache,
+                on_cache_hit=_record_cache_hit,
+                on_cache_miss=_record_cache_miss,
             )
             path.append(pos)
 

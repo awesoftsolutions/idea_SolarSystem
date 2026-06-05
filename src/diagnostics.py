@@ -51,7 +51,9 @@ class Diagnostics:
         if self._accumulated_time >= 0.999:
             # Log warnings first
             if self._low_fps_detected:
-                self._logger.warning("Performance bottleneck detected: %.1f FPS", current_fps)
+                self._logger.warning(
+                    "Performance bottleneck detected: %.1f FPS", current_fps
+                )
 
             if self._slow_convergence_count > 0:
                 self._logger.warning(

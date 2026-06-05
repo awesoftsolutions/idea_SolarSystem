@@ -21,6 +21,7 @@ from src.scenes import SceneManager, TitleScene, SimulationScene
 from src.diagnostics import Diagnostics
 from src.vector import Vec2
 
+
 def active_scene_is_simulation(manager: SceneManager) -> bool:
     """Check if the active scene is SimulationScene.
 
@@ -34,11 +35,12 @@ def active_scene_is_simulation(manager: SceneManager) -> bool:
     """
     return isinstance(manager.active_scene, SimulationScene)
 
+
 def handle_global_input(
-    event: pygame.event.Event, 
-    sim_clock: SimulationClock, 
+    event: pygame.event.Event,
+    sim_clock: SimulationClock,
     diagnostics: Diagnostics,
-    manager: SceneManager | None = None
+    manager: SceneManager | None = None,
 ) -> bool:
     """Handle global application inputs.
 
@@ -75,12 +77,13 @@ def handle_global_input(
             if abs(new_rate) < MIN_RATE:
                 new_rate = math.copysign(MIN_RATE, new_rate)
             sim_clock.rate = new_rate
-            
+
         # Toggle diagnostics overlay
         if event.key == pygame.K_d:
             diagnostics.toggle_overlay()
 
     return True
+
 
 def main() -> None:
     """Initialize and run the main application loop."""
@@ -94,12 +97,14 @@ def main() -> None:
     simulation = Simulation(clock=sim_clock, bodies=BODIES)
     viewport = Viewport(center=Vec2(0.0, 0.0), zoom=1.0)
     renderer = Renderer(simulation=simulation, viewport=viewport)
-    
+
     # Initialize SceneManager with TitleScene
     # TitleScene needs manager, simulation, and renderer
     # We create a placeholder TitleScene first, then initialize the manager
     scene_manager = SceneManager(initial_scene=None)
-    initial_scene = TitleScene(manager=scene_manager, simulation=simulation, renderer=renderer)
+    initial_scene = TitleScene(
+        manager=scene_manager, simulation=simulation, renderer=renderer
+    )
     scene_manager.transition_to(initial_scene)
 
     running = True
@@ -107,29 +112,30 @@ def main() -> None:
         # 1. Delta Time (AC-4)
         dt_ms = pygame_clock.tick(FPS_CAP)
         dt = dt_ms / 1000.0
-        
+
         # 2. Performance Tracking
         diagnostics.record_frame(dt)
-        
+
         # 3. Event Dispatch
         for event in pygame.event.get():
             running = handle_global_input(event, sim_clock, diagnostics, scene_manager)
             if not running:
                 break
             scene_manager.handle_event(event)
-            
+
         if not running:
             break
-            
+
         # 4. Logic Update
         scene_manager.update(dt)
-        
+
         # 5. Rendering
         scene_manager.draw(screen)
         pygame.display.flip()
 
     pygame.quit()
     sys.exit()
+
 
 if __name__ == "__main__":
     main()

@@ -20,15 +20,33 @@ class Trail:
         Args:
             capacity: The maximum number of points to store.
         """
-        self._points: deque[Vec2] = deque(maxlen=capacity)
+        self._points: deque[tuple[float, Vec2]] = deque(maxlen=capacity)
 
-    def append(self, pos: Vec2) -> None:
-        """Add a new position to the trail.
+    def append(self, pos: Vec2, t: float | None = None) -> None:
+        """Add a new position to the trail, unwinding for time reversal.
 
         Args:
             pos: The Vec2 position to add.
+            t: The simulation time associated with this position. If None,
+               it is treated as monotonically increasing from the last point.
         """
-        self._points.append(pos)
+        if t is None:
+            # Fallback for legacy tests or calls without timestamp
+            if self._points:
+                t = self._points[-1][0] + 1.0
+            else:
+                t = 0.0
+        # 1. Unwind trail for time reversal (KI-001)
+        while self._points and self._points[-1][0] > t:
+            self._points.pop()
+
+        # 2. Update or add point
+        if self._points and self._points[-1][0] == t:
+            # Replace the last point if it has the same timestamp
+            self._points.pop()
+            self._points.append((t, pos))
+        else:
+            self._points.append((t, pos))
 
     def get_points(self) -> list[Vec2]:
         """Retrieve all points in the trail in chronological order.
@@ -36,4 +54,4 @@ class Trail:
         Returns:
             A list of Vec2 points from oldest to newest.
         """
-        return list(self._points)
+        return [p[1] for p in self._points]

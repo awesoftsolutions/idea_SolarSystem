@@ -83,11 +83,8 @@ def test_draw_body(renderer, mock_pygame, mock_simulation):
 
         # Verify drawing call
         mock_pygame["draw"].circle.assert_called_once_with(
-            surface, (0, 0, 255), mock.ANY, mock.ANY
+            surface, (0, 0, 255), (400, 300), 10
         )
-        call_args = mock_pygame["draw"].circle.call_args[0]
-        assert call_args[2] == Vec2(400, 300)
-        assert float(call_args[3]) == 10.0
 
 
 def test_draw_orbit_path_sun(renderer, mock_pygame, mock_simulation):
@@ -97,7 +94,7 @@ def test_draw_orbit_path_sun(renderer, mock_pygame, mock_simulation):
 
     renderer.draw_orbit_path(surface, "Sun")
 
-    mock_pygame["gfxdraw"].aaellipse.assert_not_called()
+    mock_pygame["gfxdraw"].aapolygon.assert_not_called()
 
 
 def test_draw_orbit_path_body(renderer, mock_pygame, mock_simulation, mock_viewport):
@@ -135,22 +132,19 @@ def test_draw_orbit_path_body(renderer, mock_pygame, mock_simulation, mock_viewp
         assert args[0] == Vec2(0.0, 0.0)  # Sun's pos
         assert args[1].name == "Sun"
 
-        # Verify drawing calls (aapolygon and polygon for rotated ellipses)
-        expected_color = (0, 0, 255, 64)
+        # Verify drawing calls (3-pass glow rendering)
+        # Pass 1: lines (width 3)
+        # Pass 2: lines (width 2)
+        # Pass 3: aapolygon
+        assert mock_pygame["draw"].lines.call_count == 2
+        assert mock_pygame["gfxdraw"].aapolygon.call_count == 1
 
-        # Verify aapolygon
-        mock_pygame["gfxdraw"].aapolygon.assert_called_once()
+        # Verify adaptive sampling (approx 113 points for a=100, b=80)
+        # circumference = 2 * pi * sqrt((100^2 + 80^2)/2) = 2 * pi * sqrt(8200) approx 569
+        # num_points = max(64, min(1024, int(569 / 5.0))) = 113
         args_aa, _ = mock_pygame["gfxdraw"].aapolygon.call_args
-        # args_aa[1] should be the list of points
         points_list = args_aa[1]
-        assert len(points_list) == 128
-        assert args_aa[2] == expected_color
-
-        # Verify polygon
-        mock_pygame["gfxdraw"].polygon.assert_called_once()
-        args_poly, _ = mock_pygame["gfxdraw"].polygon.call_args
-        assert len(args_poly[1]) == 128
-        assert args_poly[2] == expected_color
+        assert len(points_list) == 113
 
 
 def test_draw_trail(renderer, mock_pygame, mock_simulation):
@@ -177,18 +171,24 @@ def test_draw_trail(renderer, mock_pygame, mock_simulation):
         # Verify segment drawing
         assert mock_pygame["gfxdraw"].line.call_count == 2
 
-        # Verify alpha decay (newest point is at index 2)
-        # Segment 0 (points 0-1): alpha = 255 * 1 / 3 = 85
-        # Segment 1 (points 1-2): alpha = 255 * 2 / 3 = 170
+        # Verify exponential alpha decay
+        # alpha_min = 5.0, num_points = 3
+        # Verify exponential alpha decay
+        # alpha = 255 * exp(-k * distance_from_head)
+        # Verify exponential alpha decay
+        # alpha = 255 * exp(-k * distance_from_head)
+        # k = ln(255/5) / (3-1) = ln(51) / 2 approx 1.965
+        # Segment 0 (dist=1): alpha = 255 * exp(-1.965) approx 35
+        # Segment 1 (dist=0): alpha = 255 * exp(0) = 255
         calls = mock_pygame["gfxdraw"].line.call_args_list
 
-        # First segment
+        # First segment (oldest)
         args0 = calls[0][0]
-        assert args0[5][3] == 85  # Alpha
+        assert abs(args0[5][3] - 35) <= 1
 
-        # Second segment
+        # Second segment (newest)
         args1 = calls[1][0]
-        assert args1[5][3] == 170  # Alpha
+        assert args1[5][3] == 255
 
 
 def test_draw_trail_empty(renderer, mock_pygame):

@@ -21,6 +21,7 @@ from src.trail import Trail
 if TYPE_CHECKING:
     from src.render import Renderer
     from src.simulation import Simulation
+    from src.vector import Vec2
 
 # Module-level font cache
 _FONT_CACHE: dict[tuple[str, int], pygame.font.Font] = {}
@@ -212,14 +213,14 @@ class SimulationScene(Scene):
         self._asteroid_set = set(groups.get("AsteroidBelt") or [])
 
         # Cache for predictive paths to avoid heavy calculations in draw()
-        self._predictive_paths: dict[str, list] = {}
+        self._predictive_paths: dict[str, list[Vec2]] = {}
         self._last_predictive_update_t: float | None = None
 
         # Initialize trails for each body
         self._trails: dict[str, Trail] = {}
         body_names = self.simulation.bodies.list_bodies()
         for name in body_names:
-            # Capacity of 100 points for the trail
+            # Initialize trail with configured capacity.
             self._trails[name] = Trail(capacity=constants.TRAIL_CAPACITY)
 
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -254,7 +255,7 @@ class SimulationScene(Scene):
         state = self.simulation.get_system_state(t)
         for name, pos in state.items():
             if name in self._trails:
-                self._trails[name].append(pos)
+                self._trails[name].append(pos, t)
 
         # Update predictive paths if enabled and time has changed
         if self.show_predictions and t != self._last_predictive_update_t:

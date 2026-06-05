@@ -335,7 +335,7 @@ def map_to_world(
     try:
         body_data = BODIES.get_body(frame_context.name)
     except KeyError:
-        body_data = {}  # type: ignore
+        body_data = {}
 
     a = body_data.get("a", 0.0)
 

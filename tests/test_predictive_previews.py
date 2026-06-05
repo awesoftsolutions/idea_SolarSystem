@@ -39,7 +39,9 @@ def mock_simulation():
     sim.bodies.list_bodies.return_value = ["Sun", "Earth"]
     # Ensure get_body returns data with 'T' for Earth
     sim.bodies.get_body.side_effect = lambda name: (
-        {"T": 365.0, "color": (0, 255, 0)} if name == "Earth" else {"color": (255, 255, 0)}
+        {"T": 365.0, "color": (0, 255, 0)}
+        if name == "Earth"
+        else {"color": (255, 255, 0)}
     )
     return sim
 
@@ -105,8 +107,11 @@ def test_predictive_preview_toggle(mock_simulation, mock_renderer):
 def test_draw_predictive_trail_calls(mock_simulation, mock_renderer, mock_pygame):
     """Verify renderer.draw_predictive_trail is called when enabled (AC-2, AC-3)."""
     # Ensure both Sun and Earth have 'T' for this test
-    mock_simulation.bodies.get_body.side_effect = lambda name: {"T": 365.0, "color": (255, 255, 255)}
-    
+    mock_simulation.bodies.get_body.side_effect = lambda name: {
+        "T": 365.0,
+        "color": (255, 255, 255),
+    }
+
     scene = SimulationScene(mock_simulation, mock_renderer)
     surface = mock_pygame["surface"]
 
@@ -133,8 +138,12 @@ def test_predictive_duration_calculation(mock_simulation, mock_renderer, mock_py
     """Verify that SimulationScene.draw passes duration=period * 0.25 to get_future_path (AC-1)."""
     # Fix the side_effect from mock_simulation fixture to return 400.0 for this test
     mock_simulation.bodies.get_body.side_effect = None
-    mock_simulation.bodies.get_body.return_value = {"T": 400.0, "radius": 1000.0, "color": (255, 255, 255)}
-    
+    mock_simulation.bodies.get_body.return_value = {
+        "T": 400.0,
+        "radius": 1000.0,
+        "color": (255, 255, 255),
+    }
+
     scene = SimulationScene(mock_simulation, mock_renderer)
     surface = mock_pygame["surface"]
     scene.show_predictions = True
@@ -151,8 +160,11 @@ def test_predictive_duration_calculation(mock_simulation, mock_renderer, mock_py
 def test_asteroid_exclusion(mock_simulation, mock_renderer, mock_pygame):
     """Verify that SimulationScene.draw skips bodies in the 'AsteroidBelt' group (LOD)."""
     # Ensure all bodies have 'T'
-    mock_simulation.bodies.get_body.side_effect = lambda name: {"T": 365.0, "color": (255, 255, 255)}
-    
+    mock_simulation.bodies.get_body.side_effect = lambda name: {
+        "T": 365.0,
+        "color": (255, 255, 255),
+    }
+
     scene = SimulationScene(mock_simulation, mock_renderer)
     surface = mock_pygame["surface"]
     scene.show_predictions = True
@@ -215,7 +227,9 @@ def test_missing_orbital_period(mock_simulation, mock_renderer, mock_pygame):
 
     # Earth has T, Sun does not (in this mock setup)
     mock_simulation.bodies.get_body.side_effect = lambda name: (
-        {"T": 365.0, "color": (0, 255, 0)} if name == "Earth" else {"color": (255, 255, 0)}
+        {"T": 365.0, "color": (0, 255, 0)}
+        if name == "Earth"
+        else {"color": (255, 255, 0)}
     )
 
     scene.update(0.1)

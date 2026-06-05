@@ -40,6 +40,9 @@ def resolve_absolute_position(
     bodies: BodyProvider,
     cache: dict[str, Vec2],
     visited: set[str] | None = None,
+    rel_pos_cache: dict[tuple[float, float, float, float], Vec2] | None = None,
+    on_cache_hit: typing.Callable[[], None] | None = None,
+    on_cache_miss: typing.Callable[[], None] | None = None,
 ) -> Vec2:
     """Resolve the absolute (heliocentric) position of a body at simulation time t.
 
@@ -52,6 +55,12 @@ def resolve_absolute_position(
         bodies: Injected BodyProvider.
         cache: Per-tick cache for storing resolved positions.
         visited: Set of body names already encountered in the current recursive chain.
+        rel_pos_cache: Optional persistent cache for relative positions (DR-016).
+            This cache stores heliocentric coordinates keyed by orbital elements
+            and quantized time (t % period), enabling cross-body and cross-frame
+            optimization for bodies sharing identical orbits.
+        on_cache_hit: Optional callback for persistent cache hits.
+        on_cache_miss: Optional callback for persistent cache misses.
 
     Returns:
         The absolute position vector in km.
@@ -60,7 +69,7 @@ def resolve_absolute_position(
         KeyError: If body_name is not in bodies.
         RuntimeError: If a circular dependency is detected (ERR-003).
     """
-    # 1. Cache Lookup
+    # 1. Cache Lookup (Per-tick)
     if body_name in cache:
         return cache[body_name]
 
@@ -93,13 +102,44 @@ def resolve_absolute_position(
         # Added for mypy satisfaction.
         parent_pos = Vec2(0.0, 0.0)
     else:
-        parent_pos = resolve_absolute_position(primary_name, t, bodies, cache, visited)
+        parent_pos = resolve_absolute_position(
+            primary_name,
+            t,
+            bodies,
+            cache,
+            visited,
+            rel_pos_cache=rel_pos_cache,
+            on_cache_hit=on_cache_hit,
+            on_cache_miss=on_cache_miss,
+        )
 
-    # 7. Calculate Relative Position
-    # Cast to satisfy mypy: body_data matches get_heliocentric_coords signature
-    rel_pos = get_heliocentric_coords(
-        typing.cast(typing.Dict[str, typing.Any], body_data), t
-    )
+    # 7. Calculate Relative Position (with Persistent Cache)
+    rel_pos: Vec2 | None = None
+    if rel_pos_cache is not None and all(k in body_data for k in ("a", "e", "T")):
+        a, e, period = (
+            float(body_data["a"]),
+            float(body_data["e"]),
+            float(body_data["T"]),
+        )
+        t_key = round(t % period, 6)
+        cache_key = (a, e, period, t_key)
+
+        if cache_key in rel_pos_cache:
+            rel_pos = rel_pos_cache[cache_key]
+            if on_cache_hit:
+                on_cache_hit()
+        else:
+            rel_pos = get_heliocentric_coords(
+                typing.cast(typing.Dict[str, typing.Any], body_data), t
+            )
+            rel_pos_cache[cache_key] = rel_pos
+            if on_cache_miss:
+                on_cache_miss()
+    else:
+        # Fallback to fresh calculation if cache not provided or elements missing
+        rel_pos = get_heliocentric_coords(
+            typing.cast(typing.Dict[str, typing.Any], body_data), t
+        )
 
     # 8. Unit Conversion (AU to KM)
     if primary_name == "Sun":
