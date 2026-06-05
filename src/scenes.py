@@ -60,7 +60,11 @@ class Scene(ABC):
 
 
 class SceneManager:
-    """Manages scene transitions and dispatches logic to the active scene."""
+    """Manages scene transitions and dispatches logic to the active scene.
+
+    Attributes:
+        active_scene: The currently active scene being updated and drawn.
+    """
 
     def __init__(self, initial_scene: Scene | None = None) -> None:
         """Initialize with an optional initial scene.
@@ -95,7 +99,13 @@ class SceneManager:
 
 
 class TitleScene(Scene):
-    """Splash screen scene."""
+    """Splash screen scene.
+
+    Attributes:
+        manager: The SceneManager instance.
+        simulation: The Simulation model.
+        renderer: The rendering engine.
+    """
 
     def __init__(
         self,
@@ -141,7 +151,18 @@ class TitleScene(Scene):
 
 
 class SimulationScene(Scene):
-    """Main simulation view scene."""
+    """Main simulation view scene.
+
+    Attributes:
+        simulation: The simulation model.
+        renderer: The rendering engine.
+        is_paused: Whether the simulation time is currently frozen.
+        show_predictions: Whether future orbit paths are displayed.
+        _asteroid_set: Cached set of asteroid names for fast lookup.
+        _predictive_paths: Cached future trajectory segments.
+        _last_predictive_update_t: Last time the predictive paths were updated.
+        _trails: Dictionary of historical position trails for each body.
+    """
 
     def __init__(self, simulation: Simulation, renderer: Renderer) -> None:
         """Initialize SimulationScene.
@@ -160,7 +181,7 @@ class SimulationScene(Scene):
 
         # Cache for asteroid set to avoid repeated lookups in draw()
         groups = self.simulation.bodies.get_groups()
-        self._asteroid_set = set(groups.get("AsteroidBelt", []))
+        self._asteroid_set = set(groups.get("AsteroidBelt") or [])
 
         # Cache for predictive paths to avoid heavy calculations in draw()
         self._predictive_paths: dict[str, list] = {}

@@ -199,12 +199,13 @@ class Simulation:
 
         dt = duration / steps
         path: list[Vec2] = []
+        tick_cache: dict[str, Vec2] = {}
 
         for i in range(steps + 1):
             t_future = t_start + (i * dt)
             # Use an empty cache to ensure fresh calculation per point
             # and avoid polluting the main simulation cache.
-            tick_cache: dict[str, Vec2] = {}
+            tick_cache.clear()
             pos = resolve_absolute_position(
                 body_name, t_future, self.bodies, tick_cache
             )
