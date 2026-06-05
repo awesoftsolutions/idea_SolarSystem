@@ -28,9 +28,9 @@ SIZE_LOG_OFFSET: float = -8.4
 # UPDATED: Increased radii to prevent visual occlusion of moons by their primaries.
 DISPLAY_NEIGHBORHOODS: dict[str, float] = {
     "Sun": 600.0,
-    "Earth": 50.0,
-    "Jupiter": 100.0,
-    "Saturn": 80.0,
-    "Mars": 30.0,
-    "Neptune": 50.0,
+    "Earth": 80.0,
+    "Jupiter": 150.0,
+    "Saturn": 120.0,
+    "Mars": 40.0,
+    "Neptune": 60.0,
 }
