@@ -1,3 +1,6 @@
+# CHANGELOG:
+# - Sprint 1: Define mathematical constants for solver tolerance and iterations.
+
 """Mathematical and physical constants for the solar system simulation."""
 
 # Mathematical constants for the Keplerian simulation

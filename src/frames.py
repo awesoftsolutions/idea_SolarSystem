@@ -1,12 +1,12 @@
+# CHANGELOG:
+# - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
+
 """Hierarchical reference frame composition.
 
 This module provides the logic for resolving the absolute (heliocentric)
 position of bodies in a hierarchical system by recursively summing relative
 orbital offsets and handling unit conversions.
 """
-
-# CHANGELOG:
-# - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
 
 from typing import Any, TypedDict, cast, NamedTuple
 

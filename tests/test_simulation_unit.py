@@ -4,13 +4,74 @@ These tests cover the SimulationClock for time management and the Simulation
 class for deterministic, side-effect-free state retrieval.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from src.vector import Vec2
 from src.bodies import BODIES
 from src.frames import resolve_absolute_position
-
 from src.simulation import Simulation, SimulationClock
+
+
+class TestSimulationCaching:
+    """Tests for Simulation state caching behavior (AC1, AC2)."""
+
+    @pytest.fixture
+    def simulation(self) -> Simulation:
+        """Provide a Simulation instance with a default clock."""
+        clock = SimulationClock()
+        return Simulation(clock=clock)
+
+    def test_cache_hit_ac1(self, simulation: Simulation) -> None:
+        """Verify recursive resolutions are performed only once per t (AC1)."""
+        t = 1.0
+        with patch("src.simulation.resolve_absolute_position") as mock_resolve:
+            # Mock return value to be a dummy Vec2
+            mock_resolve.return_value = Vec2(100, 200)
+
+            # First call: should trigger resolutions for all bodies
+            state1 = simulation.get_system_state(t)
+            first_call_count = mock_resolve.call_count
+            assert first_call_count == len(BODIES)
+
+            # Second call: should use cache and NOT call resolve_absolute_position
+            state2 = simulation.get_system_state(t)
+
+            assert mock_resolve.call_count == first_call_count, (
+                f"Expected {first_call_count} calls, but got {mock_resolve.call_count}. "
+                "Cache hit failed."
+            )
+            assert state1 == state2
+
+    def test_cache_invalidation_ac2(self, simulation: Simulation) -> None:
+        """Verify cache is invalidated when simulation time t changes (AC2)."""
+        with patch("src.simulation.resolve_absolute_position") as mock_resolve:
+            mock_resolve.return_value = Vec2(0, 0)
+
+            # Call for t=1.0
+            simulation.get_system_state(1.0)
+            count_after_t1 = mock_resolve.call_count
+            assert count_after_t1 == len(BODIES)
+
+            # Call for t=2.0: should trigger new resolutions
+            simulation.get_system_state(2.0)
+            assert mock_resolve.call_count == count_after_t1 + len(BODIES)
+
+    def test_cache_determinism(self, simulation: Simulation) -> None:
+        """Verify caching/invalidation does not introduce state drift."""
+        t1, t2 = 1.0, 2.0
+
+        # Get baseline for t1
+        state1_initial = simulation.get_system_state(t1)
+
+        # Trigger invalidation with t2
+        simulation.get_system_state(t2)
+
+        # Get t1 again
+        state1_final = simulation.get_system_state(t1)
+
+        assert state1_initial == state1_final
 
 
 class TestSimulationClock:
@@ -83,7 +144,7 @@ class TestSimulation:
         t = 100.0
         state1 = simulation.get_system_state(t)
         state2 = simulation.get_system_state(t)
-        
+
         for name in BODIES:
             assert state1[name] == state2[name]
 
@@ -92,8 +153,79 @@ class TestSimulation:
         # Snapshot BODIES count and clock time
         initial_bodies_count = len(BODIES)
         initial_time = simulation.clock.get_time()
-        
+
         simulation.get_system_state(10.0)
-        
+
         assert len(BODIES) == initial_bodies_count
         assert simulation.clock.get_time() == initial_time
+
+    def test_cache_integrity(self, simulation: Simulation) -> None:
+        """Verify that mutating the returned state dict does not corrupt the cache.
+
+        This test ensures that get_system_state returns a copy of the cached state,
+        preventing external callers from accidentally modifying internal simulation data.
+        """
+        t = 5.0
+        state = simulation.get_system_state(t)
+
+        # Mutate the returned dictionary
+        original_keys = list(state.keys())
+        if original_keys:
+            test_key = original_keys[0]
+            original_val = state[test_key]
+            state[test_key] = Vec2(999999, 999999)
+
+            # Retrieve state again for the same t
+            new_state = simulation.get_system_state(t)
+
+            # Verification: The internal cache should remain unchanged
+            assert (
+                new_state[test_key] == original_val
+            ), "Internal cache was corrupted by external mutation of returned dict."
+
+    def test_no_pygame_import(self) -> None:
+        """Verify that src/simulation.py does not import pygame.
+
+        Architectural requirement: Simulation logic must remain decoupled from the UI/Rendering library.
+        """
+
+        # Ensure pygame isn't already in sys.modules from other tests (though unlikely in this env)
+        # We check the file content directly for the string 'pygame' as a more robust check.
+        from pathlib import Path
+
+        sim_path = Path("src/simulation.py")
+        content = sim_path.read_text()
+
+        assert (
+            "pygame" not in content
+        ), "src/simulation.py contains 'pygame' import or reference."
+
+
+class TestSimulationClockPrecision:
+    """Tests for SimulationClock precision and Decimal behavior."""
+
+    def test_clock_decimal_precision(self) -> None:
+        """Verify that SimulationClock avoids floating-point accumulation errors.
+
+        Adding 0.1 one hundred times should equal exactly 10.0, which often fails
+        with standard floats (e.g., 0.1 * 100 != 10.0 exactly).
+        """
+        clock = SimulationClock(rate=1.0)
+        dt = 0.1
+        steps = 100
+
+        for _ in range(steps):
+            clock.update(dt)
+
+        # With Decimal, this should be exactly 10.0
+        # float(10.0) is safe for comparison if the underlying Decimal is exactly 10
+        assert clock.get_time() == 10.0
+
+        # More rigorous check: 0.0001 * 10000
+        clock.t_sim = 0.0
+        dt = 0.0001
+        steps = 10000
+        for _ in range(steps):
+            clock.update(dt)
+
+        assert clock.get_time() == 1.0
