@@ -8,27 +8,31 @@ import pytest
 from src.simulation import Simulation, SimulationClock
 from src.bodies import BODIES, generate_asteroid_belt
 from src.constants import SOLVER_TOLERANCE
-from src.vector import Vec2
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_asteroids() -> None:
-    """Initialize the asteroid belt once for the entire test session.
+@pytest.fixture(scope="session")
+def test_bodies() -> dict:
+    """Initialize a deterministic set of bodies for the entire test session.
 
-    Uses a fixed seed and count to ensure a consistent set of bodies for determinism tests.
+    Returns:
+        A dictionary containing the base BODIES plus 100 generated asteroids.
     """
-    generate_asteroid_belt(seed=42, count=100)
+    # generate_asteroid_belt now returns a dict instead of mutating global state
+    asteroids = generate_asteroid_belt(seed=42, count=100)
+    bodies = BODIES.copy()
+    bodies.update(asteroids)
+    return bodies
 
 
 @pytest.fixture
-def sim() -> Simulation:
-    """Provide a fresh Simulation instance with a default clock.
+def sim(test_bodies: dict) -> Simulation:
+    """Provide a fresh Simulation instance with a default clock and injected bodies.
 
     Returns:
         A Simulation instance initialized with a SimulationClock at rate 1.0.
     """
     clock = SimulationClock(rate=1.0)
-    return Simulation(clock)
+    return Simulation(clock, bodies=test_bodies)
 
 
 def test_determinism_jump(sim: Simulation) -> None:

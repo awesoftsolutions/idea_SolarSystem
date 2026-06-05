@@ -19,44 +19,55 @@ class TestSimulationCaching:
 
     @pytest.fixture
     def simulation(self) -> Simulation:
-        """Provide a Simulation instance with a default clock."""
+        """Provide a Simulation instance with a default clock and injected bodies."""
         clock = SimulationClock()
-        return Simulation(clock=clock)
+        return Simulation(clock=clock, bodies=BODIES)
 
     def test_cache_hit_ac1(self, simulation: Simulation) -> None:
         """Verify recursive resolutions are performed only once per t (AC1)."""
         t = 1.0
+        # In the refactored Simulation, get_system_state passes self.bodies and a tick_cache
+        # to resolve_absolute_position.
+        # If Sun is in bodies, it is resolved via resolve_absolute_position.
+        # If not, it is injected into tick_cache directly.
+        expected_calls = len([b for b in simulation.bodies if b != "Sun"])
+        if "Sun" in simulation.bodies:
+            expected_calls += 1
+
         with patch("src.simulation.resolve_absolute_position") as mock_resolve:
-            # Mock return value to be a dummy Vec2
             mock_resolve.return_value = Vec2(100, 200)
 
-            # First call: should trigger resolutions for all bodies
+            # First call: should trigger resolutions for all bodies in simulation.bodies
             state1 = simulation.get_system_state(t)
             first_call_count = mock_resolve.call_count
-            assert first_call_count == len(BODIES)
+            assert first_call_count == expected_calls
 
-            # Second call: should use cache and NOT call resolve_absolute_position
+            # Second call: should use simulation-level cache and NOT call resolve_absolute_position
             state2 = simulation.get_system_state(t)
 
             assert mock_resolve.call_count == first_call_count, (
                 f"Expected {first_call_count} calls, but got {mock_resolve.call_count}. "
-                "Cache hit failed."
+                "Simulation-level cache hit failed."
             )
             assert state1 == state2
 
     def test_cache_invalidation_ac2(self, simulation: Simulation) -> None:
         """Verify cache is invalidated when simulation time t changes (AC2)."""
+        expected_calls = len([b for b in simulation.bodies if b != "Sun"])
+        if "Sun" in simulation.bodies:
+            expected_calls += 1
+
         with patch("src.simulation.resolve_absolute_position") as mock_resolve:
             mock_resolve.return_value = Vec2(0, 0)
 
             # Call for t=1.0
             simulation.get_system_state(1.0)
             count_after_t1 = mock_resolve.call_count
-            assert count_after_t1 == len(BODIES)
+            assert count_after_t1 == expected_calls
 
             # Call for t=2.0: should trigger new resolutions
             simulation.get_system_state(2.0)
-            assert mock_resolve.call_count == count_after_t1 + len(BODIES)
+            assert mock_resolve.call_count == count_after_t1 + expected_calls
 
     def test_cache_determinism(self, simulation: Simulation) -> None:
         """Verify caching/invalidation does not introduce state drift."""
@@ -115,29 +126,59 @@ class TestSimulation:
 
     @pytest.fixture
     def simulation(self):
-        """Provide a Simulation instance with a default clock."""
+        """Provide a Simulation instance with a default clock and injected bodies."""
         clock = SimulationClock()
-        return Simulation(clock=clock)
+        return Simulation(clock=clock, bodies=BODIES)
 
     def test_get_system_state_returns_vec2_dict(self, simulation):
         """Verify get_system_state returns a dict of body names to Vec2."""
         state = simulation.get_system_state(0.0)
         assert isinstance(state, dict)
-        for name in BODIES:
+        for name in simulation.bodies:
             assert name in state
             assert isinstance(state[name], Vec2)
+        # Sun should be in state if it's in the bodies registry
+        if "Sun" in simulation.bodies:
+            assert "Sun" in state
+            assert isinstance(state["Sun"], Vec2)
 
     def test_state_retrieval_root(self, simulation):
         """Verify Sun (root) is always at (0, 0)."""
         state = simulation.get_system_state(123.45)
-        assert state["Sun"] == Vec2(0, 0)
+        if "Sun" in simulation.bodies:
+            assert state["Sun"] == Vec2(0, 0)
 
     def test_state_retrieval_nested(self, simulation):
         """Verify nested body (Moon) position matches resolve_absolute_position."""
         t = 0.5
         state = simulation.get_system_state(t)
-        expected_moon_pos = resolve_absolute_position("Moon", t)
+        # resolve_absolute_position now requires bodies and cache
+        # We must include "Sun" in the bodies dict for resolution to work
+        bodies = BODIES.copy()
+        expected_moon_pos = resolve_absolute_position(
+            "Moon", t, bodies=bodies, cache={}
+        )
         assert state["Moon"] == expected_moon_pos
+
+    def test_simulation_dependency_injection(self):
+        """Verify that Simulation only resolves bodies provided in its constructor."""
+        clock = SimulationClock()
+        custom_bodies = {
+            "Mars": {
+                "a": 1.523662,
+                "e": 0.093412,
+                "T": 1.8808476,
+                "radius": 3390.0,
+                "primary": "Sun",
+                "color": (226, 110, 71),
+            },
+        }
+        sim = Simulation(clock=clock, bodies=custom_bodies)
+        state = sim.get_system_state(0.0)
+
+        # Should only contain Mars (Sun is injected as virtual root but not in bodies)
+        assert sorted(list(state.keys())) == ["Mars"]
+        assert "Earth" not in state
 
     def test_simulation_determinism(self, simulation):
         """Verify repeated calls for the same t return identical results."""
@@ -145,18 +186,18 @@ class TestSimulation:
         state1 = simulation.get_system_state(t)
         state2 = simulation.get_system_state(t)
 
-        for name in BODIES:
+        for name in state1:
             assert state1[name] == state2[name]
 
     def test_simulation_side_effect_free(self, simulation):
-        """Verify state calculation does not modify BODIES or Simulation state."""
-        # Snapshot BODIES count and clock time
-        initial_bodies_count = len(BODIES)
+        """Verify state calculation does not modify injected bodies or Simulation state."""
+        # Snapshot bodies count and clock time
+        initial_bodies_count = len(simulation.bodies)
         initial_time = simulation.clock.get_time()
 
         simulation.get_system_state(10.0)
 
-        assert len(BODIES) == initial_bodies_count
+        assert len(simulation.bodies) == initial_bodies_count
         assert simulation.clock.get_time() == initial_time
 
     def test_cache_integrity(self, simulation: Simulation) -> None:
