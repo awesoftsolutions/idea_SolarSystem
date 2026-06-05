@@ -2,9 +2,11 @@ from src.constants import AU_TO_KM
 from src.frames import FrameNode
 from src.bodies import BODIES
 
+
 def test_au_to_km_value():
     """Verify AU_TO_KM is exactly 149,597,870.7."""
     assert AU_TO_KM == 149597870.7
+
 
 def test_frame_node_schema():
     """Verify FrameNode structure against J2000 data schema in src/bodies.py."""

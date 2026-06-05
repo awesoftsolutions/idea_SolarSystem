@@ -1,9 +1,11 @@
 import src.scaling_constants as sc
 
+
 def test_distance_constants_types():
     assert isinstance(sc.LOG_BASE_DISTANCE, float)
     assert isinstance(sc.DISTANCE_LOG_SCALE_FACTOR, float)
     assert isinstance(sc.DISTANCE_LOG_K, float)
+
 
 def test_size_constants_types():
     assert isinstance(sc.LOG_BASE_SIZE, float)
@@ -12,11 +14,13 @@ def test_size_constants_types():
     assert isinstance(sc.SIZE_LOG_K, float)
     assert isinstance(sc.SIZE_LOG_OFFSET, float)
 
+
 def test_neighborhood_types():
     assert isinstance(sc.DISPLAY_NEIGHBORHOODS, dict)
     for name, radius in sc.DISPLAY_NEIGHBORHOODS.items():
         assert isinstance(name, str)
         assert isinstance(radius, float)
+
 
 def test_constant_bounds():
     assert sc.LOG_BASE_DISTANCE > 1.0

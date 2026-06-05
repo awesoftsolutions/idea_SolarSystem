@@ -9,14 +9,14 @@ from src.vector import Vec2
 def test_vec2_immutability() -> None:
     """AC-1: Verify that Vec2 components are immutable."""
     v = Vec2(1.0, 2.0)
-    
+
     # Attempting to modify existing attributes should raise AttributeError
     with pytest.raises(AttributeError):
         v.x = 3.0  # type: ignore
-    
+
     with pytest.raises(AttributeError):
         v.y = 4.0  # type: ignore
-        
+
     # Attempting to add new attributes should also raise AttributeError due to __slots__
     with pytest.raises(AttributeError):
         v.z = 5.0  # type: ignore
@@ -133,15 +133,15 @@ def test_vec2_dot_product() -> None:
 def test_vec2_rotation() -> None:
     """AC-2: Verify vector rotation, including 360-degree precision."""
     v = Vec2(1.0, 0.0)
-    
+
     # 90 degrees (pi/2)
     v_90 = v.rotate(math.pi / 2)
     assert v_90 == Vec2(0.0, 1.0)
-    
+
     # 180 degrees (pi)
     v_180 = v.rotate(math.pi)
     assert v_180 == Vec2(-1.0, 0.0)
-    
+
     # 360 degrees (2*pi) - should return original vector within tolerance
     v_orig = Vec2(1.2, 3.4)
     v_360 = v_orig.rotate(2 * math.pi)
@@ -151,15 +151,15 @@ def test_vec2_rotation() -> None:
 def test_vec2_equality() -> None:
     """Verify epsilon-based equality using SOLVER_TOLERANCE."""
     v1 = Vec2(1.0, 1.0)
-    
+
     # Within tolerance
     v2 = Vec2(1.0 + SOLVER_TOLERANCE * 0.1, 1.0)
     assert v1 == v2
-    
+
     # Outside tolerance
     v3 = Vec2(1.0 + SOLVER_TOLERANCE * 10.0, 1.0)
     assert v1 != v3
-    
+
     # Different type
     assert v1 != (1.0, 1.0)
 
@@ -170,7 +170,7 @@ def test_vec2_equality_boundaries() -> None:
     # Just inside boundary
     v2 = Vec2(1.0 + SOLVER_TOLERANCE * 0.99, 1.0)
     assert v1 == v2
-    
+
     # Just outside boundary
     v3 = Vec2(1.0 + SOLVER_TOLERANCE * 1.01, 1.0)
     assert v1 != v3
@@ -187,7 +187,7 @@ def test_vec2_high_scale_precision() -> None:
     scale = 1e6
     v1 = Vec2(scale, 0.0)
     v2 = Vec2(scale + SOLVER_TOLERANCE * 2.0, 0.0)
-    
+
     # This should be False if rel_tol=0.0 is used.
     # If default rel_tol=1e-9 is used, rel_tol * scale = 1e-3, so they would be "close".
     assert v1 != v2, f"Precision leak at scale {scale}: {v1} should not equal {v2}"
@@ -196,10 +196,10 @@ def test_vec2_high_scale_precision() -> None:
 def test_vec2_arithmetic_type_safety() -> None:
     """Verify that arithmetic operators handle incompatible types gracefully."""
     v = Vec2(1.0, 2.0)
-    
+
     with pytest.raises(TypeError):
         _ = v + (1.0, 2.0)  # type: ignore
-        
+
     with pytest.raises(TypeError):
         _ = v - [1.0, 2.0]  # type: ignore
 

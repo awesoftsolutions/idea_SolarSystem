@@ -1,3 +1,6 @@
+# CHANGELOG:
+# - Sprint 1: Implement immutable Vec2 library with arithmetic and geometric operations.
+
 """Immutable 2D vector math for deterministic physics."""
 
 from __future__ import annotations

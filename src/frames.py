@@ -8,7 +8,7 @@ orbital offsets and handling unit conversions.
 # CHANGELOG:
 # - Sprint 2: Implement recursive position resolution with cycle detection and unit conversion.
 
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict, cast, NamedTuple
 
 from src.vector import Vec2
 from src.bodies import BODIES
@@ -18,6 +18,18 @@ from src.orbital import get_heliocentric_coords
 # Module-level state (Internal)
 _FRAME_CACHE: dict[str, Vec2] = {}
 _LAST_SIM_TIME: float | None = None
+
+
+class Frame(NamedTuple):
+    """Reference frame context for coordinate mapping.
+
+    Attributes:
+        name: Name of the body defining the frame.
+        t: Simulation time.
+    """
+
+    name: str
+    t: float
 
 
 class FrameNode(TypedDict, total=False):
