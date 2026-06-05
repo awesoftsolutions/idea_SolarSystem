@@ -9,6 +9,9 @@ from typing import Callable, Optional
 from src.constants import MAX_ITERATIONS, SOLVER_TOLERANCE
 from src.vector import Vec2
 
+TWO_PI: float = 2 * math.pi
+"""Pre-calculated 2*pi for performance."""
+
 
 def solve_kepler(
     mean_anomaly: float,
@@ -126,13 +129,13 @@ def get_heliocentric_coords(elements: dict[str, float], t: float) -> Vec2:
     period = elements["T"]
 
     # Calculate mean motion n = 2*pi / T
-    mean_motion = 2 * math.pi / period
+    mean_motion = TWO_PI / period
 
     # Normalize t to the range [0, period) to maintain precision for large t
     t_norm = math.fmod(t, period)
 
     # Calculate mean anomaly M = (n * t_norm) mod (2*pi)
-    mean_anomaly = (mean_motion * t_norm) % (2 * math.pi)
+    mean_anomaly = (mean_motion * t_norm) % TWO_PI
 
     # Convert anomalies
     eccentric_anomaly = mean_to_eccentric(mean_anomaly, e)
