@@ -1,3 +1,5 @@
+"""Unit tests for viewport transformations and zoom logic."""
+
 import pytest
 from src.viewport import Viewport, world_to_screen, screen_to_world, ANCHOR
 from src.vector import Vec2

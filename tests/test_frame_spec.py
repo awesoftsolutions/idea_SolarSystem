@@ -8,7 +8,7 @@ def test_au_to_km_value():
     assert AU_TO_KM == 149597870.7
 
 
-def test_frame_node_schema():
+def test_frame_node_schema() -> None:
     """Verify FrameNode structure against J2000 data schema in src/bodies.py."""
     # Example check against Earth
     earth_data = BODIES["Earth"]

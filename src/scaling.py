@@ -34,7 +34,8 @@ def _get_neighborhood_d_ref(primary_name: str) -> float:
         primary_name: Name of the primary body.
 
     Returns:
-        Reference distance (AU for Sun, km otherwise).
+        Reference distance in the units used by the children of this primary
+        in BODIES (AU for Sun, km otherwise).
     """
     if primary_name in _NEIGHBORHOOD_D_REF:
         return _NEIGHBORHOOD_D_REF[primary_name]

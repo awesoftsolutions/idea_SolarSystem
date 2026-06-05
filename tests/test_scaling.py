@@ -1,3 +1,5 @@
+"""Unit and integration tests for the hierarchical scaling system."""
+
 import math
 import pytest
 
