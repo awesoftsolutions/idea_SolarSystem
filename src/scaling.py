@@ -186,6 +186,32 @@ def get_neighborhood_k(primary_name: str) -> float:
     return k
 
 
+def get_scale_factor(body_name: str) -> float:
+    """Calculate the linear scale factor (S) for a neighborhood.
+
+    S = r_neighborhood / d_ref for planetary neighborhoods.
+    For the Sun, S is derived from the log-scaled distance of the reference body.
+
+    Args:
+        body_name: Name of the primary body.
+
+    Returns:
+        Scale factor in pixels/AU (Sun) or pixels/km (others).
+    """
+    r_neighborhood = get_neighborhood_bounds(body_name)
+    d_ref = _get_neighborhood_d_ref(body_name)
+
+    if body_name == "Sun":
+        # For Sun, S is derived from log_scale_distance to maintain consistency
+        # between frame spacing and local linear scaling.
+        k_sun = get_neighborhood_k("Sun")
+        d_scaled = log_scale_distance(d_ref, LOG_BASE_DISTANCE, k_sun, 1.0)
+        return d_scaled / d_ref
+
+    # For planets, S is a simple linear ratio
+    return r_neighborhood / d_ref
+
+
 def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
     """Scale orbital ellipse geometry while preserving eccentricity and orientation.
 
@@ -200,9 +226,9 @@ def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
     omega = elements.get("longitude_of_perihelion", 0.0)
     primary_name = elements.get("primary", "Sun")
 
-    # 1. Calculate visual semi-major axis using neighborhood-specific K
-    k, s = _get_scaling_params(primary_name)
-    a_v = log_scale_distance(a, LOG_BASE_DISTANCE, k, s)
+    # 1. Calculate visual semi-major axis using linear scale factor
+    s_factor = get_scale_factor(primary_name)
+    a_v = a * s_factor
 
     # 2. Calculate visual semi-minor axis to preserve eccentricity
     ratio = math.sqrt(1.0 - e * e)
@@ -230,8 +256,8 @@ def map_to_world(
 ) -> Vec2:
     """Map physical heliocentric coordinates to world-space pixels.
 
-    Applies hierarchical logarithmic scaling to preserve local legibility.
-    The output is relative to the Sun at (0, 0).
+    Applies hierarchical linear-within-log scaling to preserve local legibility
+    and orbital geometry. The output is relative to the Sun at (0, 0).
 
     Args:
         actual_pos: Absolute physical position in km.
@@ -246,7 +272,6 @@ def map_to_world(
     # 1. Cache Invalidation Check
     if frame_context.t != _LAST_SIM_TIME:
         _WORLD_CACHE.clear()
-        _NEIGHBORHOOD_K_CACHE.clear()  # Also clear K cache on time change
         _LAST_SIM_TIME = frame_context.t
 
     # 2. Cache Retrieval
@@ -256,10 +281,12 @@ def map_to_world(
 
     # 3. Base Case: Sun is at the world origin
     if frame_context.name == "Sun":
-        sun_pos = Vec2(0.0, 0.0)
-        if use_cache:
-            _WORLD_CACHE[cache_key] = sun_pos
-        return sun_pos
+        # If actual_pos is not (0,0), we still need to scale it relative to the Sun
+        if actual_pos.magnitude() < 1e-3:
+            sun_pos = Vec2(0.0, 0.0)
+            if use_cache:
+                _WORLD_CACHE[cache_key] = sun_pos
+            return sun_pos
 
     # 4. Identify Parent Frame
     body_data = BODIES[frame_context.name]
@@ -276,37 +303,16 @@ def map_to_world(
     # 6. Calculate Relative Physical Offset
     relative_offset = actual_pos - primary_abs_pos
 
-    # 7. Apply Linear Scaling for Relative Offsets
-    # IMPLEMENTATION DECISION: Use a linear scale factor derived from the log-scaled semi-major axis.
-    # Rationale: This ensures that orbits remain true ellipses (linear transformation)
-    # while the overall system hierarchy is compressed logarithmically.
-    a = body_data.get("a", 1.0)
-    k, s = _get_scaling_params(primary_name)
+    # 7. Apply Neighborhood-Specific Linear Scaling
+    s_factor = get_scale_factor(primary_name)
 
-    # Convert KM to AU for Sun-relative offsets to match 'a' units
     if primary_name == "Sun":
-        a_physical = a
+        # Convert KM to AU for Sun-relative offsets
+        rel_offset_scaled = relative_offset / AU_TO_KM
+        scaled_offset = rel_offset_scaled * s_factor
     else:
-        a_physical = a  # 'a' is already in km for moons
-
-    # Calculate the visual semi-major axis
-    a_v = log_scale_distance(a_physical, LOG_BASE_DISTANCE, k, s)
-
-    # Derive linear scale factor: k_linear = a_v / a_physical
-    if a_physical > 0:
-        k_linear = a_v / a_physical
-    else:
-        # Fallback to neighborhood reference if 'a' is missing or zero
-        d_ref = _get_neighborhood_d_ref(primary_name)
-        a_v_ref = log_scale_distance(d_ref, LOG_BASE_DISTANCE, k, s)
-        k_linear = a_v_ref / d_ref
-
-    # If primary is Sun, we need to convert relative_offset (KM) to AU for linear scaling
-    if primary_name == "Sun":
-        relative_offset_au = relative_offset / AU_TO_KM
-        scaled_offset = relative_offset_au * k_linear
-    else:
-        scaled_offset = relative_offset * k_linear
+        # Use KM directly for planetary neighborhoods
+        scaled_offset = relative_offset * s_factor
 
     # 8. Compose Final World Position
     world_pos = primary_world_pos + scaled_offset

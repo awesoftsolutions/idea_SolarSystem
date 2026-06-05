@@ -6,6 +6,7 @@ from src.vector import Vec2
 # Module-level anchor for screen transformations (center of the window)
 ANCHOR = Vec2(WINDOW_SIZE[0] / 2.0, WINDOW_SIZE[1] / 2.0)
 
+
 class Viewport:
     """Viewport configuration for coordinate mapping.
 

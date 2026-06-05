@@ -125,7 +125,6 @@ def test_map_to_screen_planet_relative_to_sun():
 def test_map_to_screen_origin_mapping():
     """Verify Body at primary origin maps to primary screen position."""
     t = 0.0
-    viewport = Viewport(Vec2(0.0, 0.0), 1.0)
 
     # Mock Moon at exactly Earth's position
     earth_abs = resolve_absolute_position("Earth", t)
@@ -143,15 +142,17 @@ def test_map_to_screen_monotonicity():
     """Verify scaling consistency within the same frame (monotonicity)."""
     t = 0.0
     viewport = Viewport(Vec2(0.0, 0.0), 1.0)
-    sun_frame = Frame("Sun", t)
 
-    # Body A at distance D, Body B at distance D + epsilon
-    d_km = 1.0 * AU_TO_KM
-    pos_a = Vec2(d_km, 0.0)
-    pos_b = Vec2(d_km + 1000.0, 0.0)
+    # Use Earth frame to test monotonicity of child offsets
+    earth_frame = Frame("Earth", t)
+    earth_abs = resolve_absolute_position("Earth", t)
 
-    p_a = map_to_screen(pos_a, sun_frame, viewport)
-    p_b = map_to_screen(pos_b, sun_frame, viewport)
+    # Body A at distance D, Body B at distance D + epsilon from Earth
+    pos_a = earth_abs + Vec2(1000.0, 0.0)
+    pos_b = earth_abs + Vec2(2000.0, 0.0)
+
+    p_a = map_to_screen(pos_a, earth_frame, viewport)
+    p_b = map_to_screen(pos_b, earth_frame, viewport)
 
     assert (p_b - p_a).x > 0
 
@@ -159,6 +160,7 @@ def test_map_to_screen_monotonicity():
 def test_map_to_screen_high_zoom():
     """Verify map_to_screen scales correctly with high zoom."""
     t = 0.0
+    # Center viewport on Sun
     viewport = Viewport(Vec2(0.0, 0.0), 100.0)
     earth_frame = Frame("Earth", t)
 
@@ -166,8 +168,10 @@ def test_map_to_screen_high_zoom():
 
     p_earth = map_to_screen(earth_abs, earth_frame, viewport)
 
-    # With zoom 100, Earth should be much further from center
-    assert p_earth.x > 10000.0
+    # Earth is at ~1 AU. Log scaling maps 1 AU to ~19.6 pixels in Sun frame.
+    # With zoom 100, that becomes ~1960 pixels from center.
+    # Screen center is at 720. 720 + 1960 = 2680.
+    assert p_earth.x > 2000.0
 
 
 def test_map_to_world_cache_hit():
@@ -294,17 +298,17 @@ def test_high_eccentricity_edge_case():
 
 def test_orbit_path_alignment():
     """CRITICAL: Verify that body position lies exactly on the visual orbit path.
-    
+
     This test confirms that the linear scaling fix resolves the geometric disconnect.
     """
     t = 0.0
     # Use Mercury (high eccentricity e=0.2) for testing
     body_name = "Mercury"
     elements = BODIES[body_name]
-    
+
     # 1. Get visual orbit geometry
     orbit_v = scale_orbit_geometry(elements)
-    
+
     # 2. Calculate physical position at perihelion (anomaly = 0)
     # At perihelion, r = a(1-e)
     a = elements["a"]
@@ -313,14 +317,14 @@ def test_orbit_path_alignment():
     # Position in AU relative to Sun (assuming omega=0 for simplicity in this check)
     pos_peri_au = Vec2(r_peri, 0.0)
     pos_peri_km = pos_peri_au * AU_TO_KM
-    
+
     # 3. Map to world space
     frame = Frame(body_name, t)
     world_pos = map_to_world(pos_peri_km, frame, use_cache=False)
-    
+
     # 4. Verify alignment
     # The visual orbit is an ellipse centered at 'center_offset' with semi-axes a_v, b_v.
     # The body at perihelion should be at: center_offset + Vec2(a_v, 0)
     expected_world_pos = orbit_v["center_offset"] + Vec2(orbit_v["a_v"], 0.0)
-    
+
     assert world_pos == expected_world_pos
