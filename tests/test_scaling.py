@@ -330,3 +330,42 @@ def test_orbit_path_alignment():
     expected_world_pos = orbit_v["center_offset"] + Vec2(orbit_v["a_v"], 0.0)
 
     assert world_pos == expected_world_pos
+
+
+def test_body_specific_scaling_expansion():
+    """Verify that inner planets are expanded compared to neighborhood-wide linear scaling.
+
+    In the old model, Earth (1 AU) was at ~16px because Neptune (30 AU) was at 500px (linear).
+    In the new model, Earth (1 AU) should be at ~100px (log-scaled).
+    """
+    from src.scaling import (
+        get_body_scale_factor,
+        log_scale_distance,
+        get_neighborhood_k,
+    )
+
+    # Sun neighborhood parameters
+    k_sun = get_neighborhood_k("Sun")
+    s_sun = 1.0  # Sun scale factor is 1.0 AU
+
+    # Earth (a = 1.0 AU)
+    a_earth = 1.0
+    # Expected log-scaled distance for 1 AU
+    expected_d_log = log_scale_distance(a_earth, k=k_sun, s=s_sun)
+
+    # The body-specific scale factor should be k_log / a
+    k_linear = get_body_scale_factor(a_earth, "Sun")
+
+    assert math.isclose(k_linear * a_earth, expected_d_log)
+    # Verify it's much larger than the old linear scale (500 / 30 = 16.6)
+    assert k_linear > 50.0
+
+
+def test_performance_optimization_lookup():
+    """Verify that _NEIGHBORHOOD_D_REF is pre-populated."""
+    from src import scaling
+
+    # The dictionary should be pre-populated for known primaries
+    assert "Sun" in scaling._NEIGHBORHOOD_D_REF
+    assert "Earth" in scaling._NEIGHBORHOOD_D_REF
+    assert scaling._NEIGHBORHOOD_D_REF["Sun"] == 30.0

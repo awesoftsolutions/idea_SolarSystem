@@ -27,37 +27,46 @@ _NEIGHBORHOOD_D_REF: dict[str, float] = {}
 _NEIGHBORHOOD_K_CACHE: dict[str, float] = {}
 
 
+def _initialize_neighborhood_refs() -> None:
+    """Pre-calculate reference distances for all primaries in BODIES.
+
+    This avoids O(N) scans during simulation.
+    """
+    # 1. Initialize Sun
+    _NEIGHBORHOOD_D_REF["Sun"] = 30.0
+
+    # 2. Find all other primaries
+    primaries = {
+        data["primary"] for data in BODIES.values() if data.get("primary") is not None
+    }
+
+    # 3. Calculate max 'a' for each primary's children
+    for primary in primaries:
+        if primary == "Sun" or primary is None:
+            continue
+        children_a = [
+            float(data["a"])
+            for data in BODIES.values()
+            if data.get("primary") == primary and "a" in data
+        ]
+        _NEIGHBORHOOD_D_REF[primary] = max(children_a) if children_a else 1000.0
+
+
+# Run initialization at module load
+_initialize_neighborhood_refs()
+
+
 def _get_neighborhood_d_ref(primary_name: str) -> float:
-    """Retrieve or calculate the reference distance for a primary's neighborhood.
+    """Retrieve the reference distance for a primary's neighborhood.
 
     Args:
         primary_name: Name of the primary body.
 
     Returns:
         Reference distance in the units used by the children of this primary
-        in BODIES (AU for Sun, km otherwise).
+        in BODIES (AU for Sun-centered neighborhoods, km for planetary neighborhoods).
     """
-    if primary_name in _NEIGHBORHOOD_D_REF:
-        return _NEIGHBORHOOD_D_REF[primary_name]
-
-    d_ref: float = 1.0
-    if primary_name == "Sun":
-        d_ref = 30.0
-    else:
-        # IMPLEMENTATION DECISION: O(N) scan is performed once per primary and cached.
-        # Rationale: BODIES is static during simulation.
-        children_a: list[float] = [
-            float(data["a"])
-            for name, data in BODIES.items()
-            if data.get("primary") == primary_name and "a" in data
-        ]
-        if children_a:
-            d_ref = max(children_a)
-        else:
-            d_ref = 1000.0
-
-    _NEIGHBORHOOD_D_REF[primary_name] = d_ref
-    return d_ref
+    return _NEIGHBORHOOD_D_REF.get(primary_name, 1000.0)
 
 
 def _get_scale_factor(primary_name: str) -> float:
@@ -187,30 +196,27 @@ def get_neighborhood_k(primary_name: str) -> float:
     return k
 
 
-def get_scale_factor(body_name: str) -> float:
-    """Calculate the linear scale factor (S) for a neighborhood.
+def get_body_scale_factor(a: float, primary_name: str) -> float:
+    """Calculate the body-specific linear scale factor (k_linear).
 
-    S = r_neighborhood / d_ref for planetary neighborhoods.
-    For the Sun, S is derived from the log-scaled distance of the reference body.
+    k_linear = log_scale_distance(a, ...) / a.
+    This ensures that each body's average distance is log-scaled, but its
+    local orbital motion is linear, preserving the elliptical shape.
 
     Args:
-        body_name: Name of the primary body.
+        a: Semi-major axis of the body.
+        primary_name: Name of the primary body.
 
     Returns:
         Scale factor in pixels/AU (Sun) or pixels/km (others).
     """
-    r_neighborhood = get_neighborhood_bounds(body_name)
-    d_ref = _get_neighborhood_d_ref(body_name)
+    if a <= 0:
+        return 0.0
 
-    if body_name == "Sun":
-        # For Sun, S is derived from log_scale_distance to maintain consistency
-        # between frame spacing and local linear scaling.
-        k_sun = get_neighborhood_k("Sun")
-        d_scaled = log_scale_distance(d_ref, LOG_BASE_DISTANCE, k_sun, 1.0)
-        return d_scaled / d_ref
+    k_p, s_p = _get_scaling_params(primary_name)
+    d_scaled = log_scale_distance(a, LOG_BASE_DISTANCE, k_p, s_p)
 
-    # For planets, S is a simple linear ratio
-    return r_neighborhood / d_ref
+    return d_scaled / a
 
 
 def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
@@ -227,9 +233,9 @@ def scale_orbit_geometry(elements: dict[str, Any]) -> dict[str, Any]:
     omega = elements.get("longitude_of_perihelion", 0.0)
     primary_name = elements.get("primary", "Sun")
 
-    # 1. Calculate visual semi-major axis using linear scale factor
-    s_factor = get_scale_factor(primary_name)
-    a_v = a * s_factor
+    # 1. Calculate visual semi-major axis using body-specific linear scale factor
+    k_linear = get_body_scale_factor(a, primary_name)
+    a_v = a * k_linear
 
     # 2. Calculate visual semi-minor axis to preserve eccentricity
     ratio = math.sqrt(1.0 - e * e)
@@ -304,16 +310,23 @@ def map_to_world(
     # 6. Calculate Relative Physical Offset
     relative_offset = actual_pos - primary_abs_pos
 
-    # 7. Apply Neighborhood-Specific Linear Scaling
-    s_factor = get_scale_factor(primary_name)
+    # 7. Apply Body-Specific Linear Scaling
+    # Retrieve semi-major axis 'a' for the body
+    body_data = BODIES.get(frame_context.name, {})
+    a = body_data.get("a", 0.0)
 
+    # Convert relative_offset to AU if primary is Sun
     if primary_name == "Sun":
-        # Convert KM to AU for Sun-relative offsets
-        rel_offset_scaled = relative_offset / AU_TO_KM
-        scaled_offset = rel_offset_scaled * s_factor
+        relative_offset = relative_offset / AU_TO_KM
+
+    # Fallback: if 'a' is missing or 0, use instantaneous distance 'd'
+    if a <= 0:
+        d = relative_offset.magnitude()
+        k_linear = get_body_scale_factor(d, primary_name)
     else:
-        # Use KM directly for planetary neighborhoods
-        scaled_offset = relative_offset * s_factor
+        k_linear = get_body_scale_factor(a, primary_name)
+
+    scaled_offset = relative_offset * k_linear
 
     # 8. Compose Final World Position
     world_pos = primary_world_pos + scaled_offset
