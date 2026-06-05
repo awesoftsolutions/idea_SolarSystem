@@ -5,17 +5,15 @@ import pytest
 from src.constants import AU_TO_KM
 from src.frames import Frame, resolve_absolute_position
 from src.scaling import (
-    Viewport,
     get_neighborhood_bounds,
     log_scale_distance,
     log_scale_size,
     map_to_screen,
     map_to_world,
     scale_orbit_geometry,
-    screen_to_world,
-    world_to_screen,
 )
 from src.vector import Vec2
+from src.viewport import Viewport
 
 
 def test_distance_monotonicity():
@@ -63,21 +61,6 @@ def test_neighborhood_retrieval():
         get_neighborhood_bounds("UnknownBody")
 
 
-def test_viewport_invertibility() -> None:
-    """Verify that world -> screen -> world returns the original point.
-
-    Scenario: Viewport(center=Vec2(100, 200), zoom=2.5), p = Vec2(500, 600).
-    """
-    p = Vec2(500.0, 600.0)
-    v = Viewport(Vec2(100.0, 200.0), 2.5)
-
-    s = world_to_screen(p, v)
-    p2 = screen_to_world(s, v)
-
-    # Assertion: p2 == p (uses Vec2.__eq__ which respects SOLVER_TOLERANCE)
-    assert p2 == p
-
-
 def test_neptune_containment() -> None:
     """Ensure Neptune fits in the 1440x1080 viewport at default zoom 1.0.
 
@@ -89,76 +72,23 @@ def test_neptune_containment() -> None:
     world_pos = Vec2(scaled_d, 0.0)
     v = Viewport(Vec2(0.0, 0.0), 1.0)
 
-    s = world_to_screen(world_pos, v)
+    s = map_to_screen(world_pos, Frame("Sun", 0.0), v)
 
     # Assertion: s is within (0,0) to (1440, 1080)
     assert 0.0 <= s.x <= 1440.0
     assert 0.0 <= s.y <= 1080.0
 
 
-def test_viewport_shifting() -> None:
-    """Moving the viewport center shifts all bodies in the opposite direction.
-
-    Scenario: Map Vec2(0, 0) with Viewport(center=Vec2(100, 0), zoom=1.0).
-    Expected: (720 - 100, 540) = (620, 540).
-    """
-    v = Viewport(Vec2(100.0, 0.0), 1.0)
-    p = Vec2(0.0, 0.0)
-
-    s = world_to_screen(p, v)
-
-    # Assertion: Body at world origin appears shifted left by 100 pixels
-    assert s == Vec2(620.0, 540.0)
-
-
-def test_zoom_scaling() -> None:
-    """Increasing zoom moves bodies further from the screen center.
-
-    Scenario: Map Vec2(100, 0) with Viewport(center=Vec2(0, 0), zoom=2.0).
-    Expected: (720 + 200, 540) = (920, 540).
-    """
-    p = Vec2(100.0, 0.0)
-    v = Viewport(Vec2(0.0, 0.0), 2.0)
-
-    s = world_to_screen(p, v)
-
-    # Assertion: s.x == 920 (720 + 100 * 2.0)
-    assert s == Vec2(920.0, 540.0)
-
-
-def test_zero_zoom_handling() -> None:
-    """Handle zoom = 0.0 gracefully (prevent division by zero)."""
-    v = Viewport(Vec2(0.0, 0.0), 0.0)
-    s = Vec2(820.0, 540.0)
-
-    # Should not raise ZeroDivisionError
-    try:
-        p = screen_to_world(s, v)
-        assert isinstance(p, Vec2)
-    except ZeroDivisionError:
-        pytest.fail("screen_to_world raised ZeroDivisionError for zoom=0.0")
-
-
-def test_negative_zoom_handling() -> None:
-    """Verify that negative zoom values are handled gracefully (clamped)."""
-    v = Viewport(Vec2(0.0, 0.0), -5.0)
-    s = Vec2(820.0, 540.0)
-
-    # Should handle negative zoom by clamping to a positive epsilon
-    try:
-        p = screen_to_world(s, v)
-        assert isinstance(p, Vec2)
-        # If clamped to 1e-6, rel_pos (100, 0) becomes world_pos (1e8, 0)
-        assert p.x > 0
-    except ZeroDivisionError:
-        pytest.fail("screen_to_world raised ZeroDivisionError for negative zoom")
-
-
 # --- Integration Tests for map_to_screen ---
 
 
 def test_map_to_screen_moon_relative_to_earth():
-    """Verify AC-1: Moon screen offset from Earth matches log-scaled distance."""
+    """Verify AC-1: Moon screen offset from Earth matches linear-scaled distance.
+    
+    In the new architecture, within-neighborhood scaling is linear:
+    dist_screen = dist_km * S_earth
+    """
+    from src.scaling import get_scale_factor
     t = 0.0
     viewport = Viewport(Vec2(0.0, 0.0), 1.0)
     earth_frame = Frame("Earth", t)
@@ -167,18 +97,19 @@ def test_map_to_screen_moon_relative_to_earth():
     # Physical positions (km)
     earth_abs = resolve_absolute_position("Earth", t)
     moon_abs = resolve_absolute_position("Moon", t)
+    rel_dist_km = (moon_abs - earth_abs).magnitude()
 
     # map_to_screen should accept Frame context
     p_earth = map_to_screen(earth_abs, earth_frame, viewport)
     p_moon = map_to_screen(moon_abs, moon_frame, viewport)
 
     dist_screen = (p_moon - p_earth).magnitude()
+    
+    # Expected: linear scaling within Earth's frame
+    s_earth = get_scale_factor("Earth")
+    expected_dist = rel_dist_km * s_earth
 
-    # Moon is ~384,400 km from Earth.
-    # Expected screen distance = log_scale_distance(384400.0, LOG_BASE_DISTANCE, k_earth)
-    # k_earth is calculated in src/scaling.py
-    assert dist_screen > 0
-    assert dist_screen < 100.0  # Should be within Earth's neighborhood (50px)
+    assert math.isclose(dist_screen, expected_dist, rel_tol=1e-7)
 
 
 def test_map_to_screen_planet_relative_to_sun():
@@ -215,22 +146,14 @@ def test_map_to_screen_origin_mapping():
     # Mock Moon at exactly Earth's position
     earth_abs = resolve_absolute_position("Earth", t)
 
-    # Use a dummy name for the Moon to avoid cache collisions if we were testing cache,
-    # but here we want to verify that map_to_world correctly handles the hierarchy.
-    # We'll call map_to_world directly with use_cache=False to ensure we're testing the logic.
-    from src.scaling import map_to_world, world_to_screen
-
     earth_frame = Frame("Earth", t)
     moon_frame = Frame("Moon", t)
     w_earth = map_to_world(earth_abs, earth_frame, use_cache=False)
     w_moon = map_to_world(earth_abs, moon_frame, use_cache=False)
 
-    p_earth = world_to_screen(w_earth, viewport)
-    p_moon = world_to_screen(w_moon, viewport)
-
     # Use is_close for vector comparison due to floating point precision
-    assert math.isclose(p_earth.x, p_moon.x, abs_tol=1e-7)
-    assert math.isclose(p_earth.y, p_moon.y, abs_tol=1e-7)
+    assert math.isclose(w_earth.x, w_moon.x, abs_tol=1e-7)
+    assert math.isclose(w_earth.y, w_moon.y, abs_tol=1e-7)
 
 
 def test_map_to_screen_monotonicity():
@@ -281,7 +204,6 @@ def test_map_to_world_cache_hit():
     scaling._LAST_SIM_TIME = t
 
     # First call to populate cache
-    # map_to_world should accept Frame context
     map_to_world(pos, frame)
 
     # Verify it's in cache using composite key
@@ -332,8 +254,6 @@ def test_map_to_world_cache_invalidation():
     assert (frame1.name, pos.x, pos.y) in scaling._WORLD_CACHE
 
     # Change time and call again
-    # We must call map_to_world with a different time to trigger invalidation
-    # Use a different position to ensure the key is different
     pos2 = Vec2(200.0, 200.0)
     map_to_world(pos2, frame2)
 
@@ -351,8 +271,7 @@ def test_map_to_world_cache_invalidation():
 def test_eccentricity_preservation(e):
     """Verify b_v / a_v == sqrt(1 - e^2) for various eccentricities."""
     elements = {"a": 1.0, "e": e, "longitude_of_perihelion": 0.0, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     a_v = result["a_v"]
     b_v = result["b_v"]
@@ -368,8 +287,7 @@ def test_eccentricity_preservation(e):
 def test_orientation_preservation(omega):
     """Verify orientation matches input longitude_of_perihelion."""
     elements = {"a": 1.0, "e": 0.1, "longitude_of_perihelion": omega, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     assert math.isclose(result["orientation"], omega, abs_tol=1e-9)
 
@@ -379,16 +297,13 @@ def test_orientation_preservation(omega):
 def test_focus_alignment(e, omega):
     """Verify that the primary focus remains at (0,0) in scaled space."""
     elements = {"a": 1.5, "e": e, "longitude_of_perihelion": omega, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     a_v = result["a_v"]
     center_offset = result["center_offset"]
     orientation = result["orientation"]
 
     # The primary (focus) should be at (0,0)
-    # focus = center + vector_from_center_to_focus
-    # In the unrotated frame, focus is at (a_v * e, 0) relative to center.
     focus = center_offset + Vec2(a_v * e, 0.0).rotate(orientation)
     assert focus.magnitude() < 1e-9
 
@@ -396,8 +311,7 @@ def test_focus_alignment(e, omega):
 def test_circular_orbit():
     """Verify e=0 results in a_v == b_v and zero center_offset."""
     elements = {"a": 1.0, "e": 0.0, "longitude_of_perihelion": 0.5, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     assert math.isclose(result["a_v"], result["b_v"])
     assert result["center_offset"].magnitude() < 1e-9
@@ -406,8 +320,7 @@ def test_circular_orbit():
 def test_zero_a():
     """Verify a=0 results in zeroed geometry."""
     elements = {"a": 0.0, "e": 0.5, "longitude_of_perihelion": 0.0, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     assert result["a_v"] == 0.0
     assert result["b_v"] == 0.0
@@ -418,8 +331,7 @@ def test_high_eccentricity_edge_case():
     """Verify stability for e very close to 1.0."""
     e = 0.9999
     elements = {"a": 10.0, "e": e, "longitude_of_perihelion": 1.0, "primary": "Sun"}
-    scale_factor = 10.0
-    result = scale_orbit_geometry(elements, scale_factor)
+    result = scale_orbit_geometry(elements)
 
     assert result["a_v"] > 0
     assert result["b_v"] >= 0
@@ -431,6 +343,25 @@ def test_high_eccentricity_edge_case():
     )
     assert focus.magnitude() < 1e-9
 
+
+def test_get_scale_factor_values():
+    """Verify get_scale_factor returns correct S for Sun and Planets."""
+    from src.scaling import get_scale_factor, get_neighborhood_bounds, get_neighborhood_k, log_scale_distance
+    from src.scaling_constants import LOG_BASE_DISTANCE
+    
+    # Planet case: S = pixels / km
+    s_earth = get_scale_factor("Earth")
+    r_earth = get_neighborhood_bounds("Earth")
+    # We need to know d_ref for Earth. It's the max 'a' of its children (Moon).
+    # Moon 'a' is ~384400 km.
+    assert math.isclose(s_earth, r_earth / 384400.0, rel_tol=1e-5)
+    
+    # Sun case: S = log_scaled_d_ref / d_ref
+    s_sun = get_scale_factor("Sun")
+    k_sun = get_neighborhood_k("Sun")
+    # Sun d_ref is 30.0 AU
+    d_scaled = log_scale_distance(30.0, LOG_BASE_DISTANCE, k_sun, 1.0)
+    assert math.isclose(s_sun, d_scaled / 30.0, rel_tol=1e-7)
 
 def test_neighborhood_k_caching():
     """Verify that neighborhood K factors are cached for performance."""
@@ -451,3 +382,55 @@ def test_neighborhood_k_caching():
     # Second call should use K cache
     k_cached = scaling.get_neighborhood_k("Earth")
     assert k_cached == 999.9
+
+def test_neighborhood_radii_constants():
+    """Verify that neighborhood radii meet the new minimum requirements."""
+    from src.scaling_constants import DISPLAY_NEIGHBORHOODS
+    
+    assert DISPLAY_NEIGHBORHOODS["Earth"] >= 80.0
+    assert DISPLAY_NEIGHBORHOODS["Jupiter"] >= 150.0
+    assert DISPLAY_NEIGHBORHOODS["Saturn"] >= 120.0
+    assert DISPLAY_NEIGHBORHOODS["Mars"] >= 40.0
+    assert DISPLAY_NEIGHBORHOODS["Neptune"] >= 60.0
+
+
+def test_orbit_path_alignment():
+    """Verify that a body's visual position lies on its visual orbit path.
+
+    This test specifically targets the 'geometric disconnect' issue.
+    A body at perihelion (distance a*(1-e)) should map to the same visual
+    distance as the visual semi-major axis minus the visual focus offset.
+    """
+    from src.bodies import BODIES
+
+    # Use Mercury as it has significant eccentricity (0.205)
+    name = "Mercury"
+    data = BODIES[name]
+    a = data["a"]
+    e = data["e"]
+    primary = data["primary"]
+
+    # 1. Calculate visual orbit geometry
+    orbit_v = scale_orbit_geometry(data)
+    a_v = orbit_v["a_v"]
+
+    # 2. Calculate visual position at perihelion (angle 0 relative to perihelion)
+    # Physical position at perihelion: r = a * (1 - e)
+    # In map_to_world, this should map to a_v * (1 - e) due to linear scaling of offsets.
+    r_perihelion = a * (1 - e)
+    # We'll use a mock absolute position for Mercury at perihelion
+    # Assuming Sun is at (0,0) and perihelion is along +X
+    pos_perihelion = Vec2(r_perihelion, 0.0)
+    frame = Frame(name, 0.0)
+
+    # map_to_world(pos_perihelion, frame) should return a world position
+    # whose magnitude is exactly a_v * (1 - e)
+    world_pos = map_to_world(pos_perihelion, frame, use_cache=False)
+    visual_dist = world_pos.magnitude()
+
+    # Expected: visual_dist == a_v * (1 - e)
+    # If the implementation uses non-linear log scaling for instantaneous distance,
+    # visual_dist would be log_scale_distance(a*(1-e)) which is NOT a_v * (1-e).
+    expected_dist = a_v * (1 - e)
+
+    assert math.isclose(visual_dist, expected_dist, rel_tol=1e-9)
