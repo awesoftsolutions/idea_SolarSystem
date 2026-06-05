@@ -8,16 +8,8 @@ import math
 from typing import Any, cast
 
 from src.bodies import BODIES, BodyData
-from src.constants import AU_TO_KM
+from src import constants
 from src.frames import Frame, resolve_absolute_position
-from src.scaling_constants import (
-    DISPLAY_NEIGHBORHOODS,
-    DISTANCE_LOG_K,
-    DISTANCE_LOG_SCALE_FACTOR,
-    LOG_BASE_DISTANCE,
-    SIZE_LOG_K,
-    SIZE_LOG_OFFSET,
-)
 from src.vector import Vec2
 from src.viewport import Viewport, world_to_screen
 
@@ -43,7 +35,7 @@ def _initialize_neighborhood_refs() -> None:
         None
     """
     # 1. Initialize Sun
-    _NEIGHBORHOOD_D_REF["Sun"] = 30.0
+    _NEIGHBORHOOD_D_REF["Sun"] = constants.SUN_NEIGHBORHOOD_REF
 
     # 2. Find all other primaries
     body_names = BODIES.list_bodies()
@@ -65,7 +57,9 @@ def _initialize_neighborhood_refs() -> None:
             if BODIES.get_body(name).get("primary") == primary
             and "a" in BODIES.get_body(name)
         ]
-        _NEIGHBORHOOD_D_REF[primary] = max(children_a) if children_a else 1000.0
+        _NEIGHBORHOOD_D_REF[primary] = (
+            max(children_a) if children_a else constants.FALLBACK_NEIGHBORHOOD_REF
+        )
 
 
 # Run initialization at module load
@@ -82,7 +76,7 @@ def _get_neighborhood_d_ref(primary_name: str) -> float:
         Reference distance in the units used by the children of this primary
         in BODIES (AU for Sun-centered neighborhoods, km for planetary neighborhoods).
     """
-    return _NEIGHBORHOOD_D_REF.get(primary_name, 1000.0)
+    return _NEIGHBORHOOD_D_REF.get(primary_name, constants.FALLBACK_NEIGHBORHOOD_REF)
 
 
 def _get_scale_factor(primary_name: str) -> float:
@@ -94,7 +88,7 @@ def _get_scale_factor(primary_name: str) -> float:
     Returns:
         Scale factor (1.0 for Sun, DISTANCE_LOG_SCALE_FACTOR otherwise).
     """
-    return 1.0 if primary_name == "Sun" else DISTANCE_LOG_SCALE_FACTOR
+    return 1.0 if primary_name == "Sun" else constants.DISTANCE_LOG_SCALE_FACTOR
 
 
 def _get_scaling_params(primary_name: str) -> tuple[float, float]:
@@ -116,14 +110,14 @@ def _get_scaling_params(primary_name: str) -> tuple[float, float]:
     try:
         r_neighborhood = get_neighborhood_bounds(primary_name)
     except KeyError:
-        return DISTANCE_LOG_K, s
+        return constants.DISTANCE_LOG_K, s
 
     # 3. Get reference distance
     d_ref = _get_neighborhood_d_ref(primary_name)
 
     # 4. Calculate K
-    log_val = math.log(1 + d_ref / s, LOG_BASE_DISTANCE)
-    k = r_neighborhood / log_val if log_val > 0 else DISTANCE_LOG_K
+    log_val = math.log(1 + d_ref / s, constants.LOG_BASE_DISTANCE)
+    k = r_neighborhood / log_val if log_val > 0 else constants.DISTANCE_LOG_K
 
     # 5. Store in cache
     _NEIGHBORHOOD_K_CACHE[primary_name] = k
@@ -133,9 +127,9 @@ def _get_scaling_params(primary_name: str) -> tuple[float, float]:
 
 def log_scale_distance(
     d: float,
-    log_base: float = LOG_BASE_DISTANCE,
-    k: float = DISTANCE_LOG_K,
-    s: float = DISTANCE_LOG_SCALE_FACTOR,
+    log_base: float = constants.LOG_BASE_DISTANCE,
+    k: float = constants.DISTANCE_LOG_K,
+    s: float = constants.DISTANCE_LOG_SCALE_FACTOR,
 ) -> float:
     """Apply logarithmic compression to a physical distance.
 
@@ -171,7 +165,7 @@ def log_scale_size(r: float, min_p: float, max_p: float, base: float) -> float:
         return min_p
 
     log_val = math.log(r, base)
-    raw_pixels = (SIZE_LOG_K * log_val) + SIZE_LOG_OFFSET
+    raw_pixels = (constants.SIZE_LOG_K * log_val) + constants.SIZE_LOG_OFFSET
 
     return max(min_p, min(max_p, raw_pixels))
 
@@ -188,12 +182,12 @@ def get_neighborhood_bounds(body_name: str) -> float:
     Raises:
         KeyError: If the body is not a known primary with a defined neighborhood.
     """
-    if body_name not in DISPLAY_NEIGHBORHOODS:
+    if body_name not in constants.DISPLAY_NEIGHBORHOODS:
         raise KeyError(
             f"Unknown body: '{body_name}' has no defined display neighborhood."
         )
 
-    return DISPLAY_NEIGHBORHOODS[body_name]
+    return constants.DISPLAY_NEIGHBORHOODS[body_name]
 
 
 def get_neighborhood_k(primary_name: str) -> float:
@@ -230,7 +224,7 @@ def get_body_scale_factor(a: float, primary_name: str) -> float:
         return 0.0
 
     k_p, s_p = _get_scaling_params(primary_name)
-    d_scaled = log_scale_distance(a, LOG_BASE_DISTANCE, k_p, s_p)
+    d_scaled = log_scale_distance(a, constants.LOG_BASE_DISTANCE, k_p, s_p)
 
     return d_scaled / a
 
@@ -311,7 +305,7 @@ def map_to_world(
     # 3. Base Case: Sun is at the world origin
     if frame_context.name == "Sun":
         # If actual_pos is not (0,0), we still need to scale it relative to the Sun
-        if actual_pos.magnitude() < 1e-3:
+        if actual_pos.magnitude() < constants.SUN_POS_THRESHOLD:
             sun_pos = Vec2(0.0, 0.0)
             if use_cache:
                 _WORLD_CACHE[cache_key] = sun_pos
@@ -347,7 +341,7 @@ def map_to_world(
 
     # Convert relative_offset to AU if primary is Sun
     if primary_name == "Sun":
-        relative_offset = relative_offset / AU_TO_KM
+        relative_offset = relative_offset / constants.AU_TO_KM
 
     # Fallback: if 'a' is missing or 0, use instantaneous distance 'd'
     if a <= 0:

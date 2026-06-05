@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 5: Implement Scene FSM with SceneManager, TitleScene, and SimulationScene.
+# - Sprint 6: Implement predictive paths toggle and robust asteroid belt initialization.
 
 """Scene Management & UI State Machine for the solar simulation.
 
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from src import constants
 from src.trail import Trail
 
 # Type hinting imports
@@ -83,17 +85,29 @@ class SceneManager:
         self.active_scene = new_scene
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Dispatch event to the active scene if it exists."""
+        """Dispatch event to the active scene if it exists.
+
+        Args:
+            event: The Pygame event to dispatch.
+        """
         if self.active_scene:
             self.active_scene.handle_event(event)
 
     def update(self, dt: float) -> None:
-        """Dispatch update to the active scene if it exists."""
+        """Dispatch update to the active scene if it exists.
+
+        Args:
+            dt: The time delta since the last update.
+        """
         if self.active_scene:
             self.active_scene.update(dt)
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dispatch draw to the active scene if it exists."""
+        """Dispatch draw to the active scene if it exists.
+
+        Args:
+            surface: The Pygame surface to draw on.
+        """
         if self.active_scene:
             self.active_scene.draw(surface)
 
@@ -125,29 +139,43 @@ class TitleScene(Scene):
         self.renderer = renderer
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Transition to SimulationScene on SPACE."""
+        """Transition to SimulationScene on SPACE.
+
+        Args:
+            event: The Pygame event to handle.
+        """
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             if self.manager and self.simulation and self.renderer:
                 sim_scene = SimulationScene(self.simulation, self.renderer)
                 self.manager.transition_to(sim_scene)
 
     def update(self, dt: float) -> None:
-        """No logic for TitleScene."""
+        """No logic for TitleScene.
+
+        Args:
+            dt: The time delta since the last update.
+        """
         pass
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Render splash screen."""
-        surface.fill((0, 0, 0))
+        """Render splash screen.
 
-        font = _get_font("Arial", 64)
-        title_surf = font.render("solar", True, (255, 255, 255))
+        Args:
+            surface: The Pygame surface to draw on.
+        """
+        surface.fill(constants.COLOR_BLACK)
+
+        font = _get_font("Arial", constants.FONT_SIZE_TITLE)
+        title_surf = font.render("solar", True, constants.COLOR_WHITE)
         title_x = surface.get_width() // 2 - title_surf.get_width() // 2
-        surface.blit(title_surf, (title_x, 200))
+        surface.blit(title_surf, (title_x, constants.TITLE_Y_POS))
 
-        font_small = _get_font("Arial", 24)
-        prompt_surf = font_small.render("Press SPACE to Start", True, (200, 200, 200))
+        font_small = _get_font("Arial", constants.FONT_SIZE_SMALL)
+        prompt_surf = font_small.render(
+            "Press SPACE to Start", True, constants.COLOR_PROMPT
+        )
         prompt_x = surface.get_width() // 2 - prompt_surf.get_width() // 2
-        surface.blit(prompt_surf, (prompt_x, 400))
+        surface.blit(prompt_surf, (prompt_x, constants.PROMPT_Y_POS))
 
 
 class SimulationScene(Scene):
@@ -192,10 +220,13 @@ class SimulationScene(Scene):
         body_names = self.simulation.bodies.list_bodies()
         for name in body_names:
             # Capacity of 100 points for the trail
-            self._trails[name] = Trail(capacity=100)
+            self._trails[name] = Trail(capacity=constants.TRAIL_CAPACITY)
 
     def handle_event(self, event: pygame.event.Event) -> None:
         """Toggle pause on 'P' and predictions on 'F'.
+
+        Args:
+            event: The Pygame event to handle.
 
         Returns:
             None
@@ -208,6 +239,9 @@ class SimulationScene(Scene):
 
     def update(self, dt: float) -> None:
         """Update simulation clock and trails if not paused.
+
+        Args:
+            dt: The time delta since the last update.
 
         Returns:
             None
@@ -237,17 +271,23 @@ class SimulationScene(Scene):
 
                 period = float(body_data["T"])
                 self._predictive_paths[name] = self.simulation.get_future_path(
-                    name, t, duration=period * 0.25, steps=20
+                    name,
+                    t,
+                    duration=period * constants.PREDICTION_DURATION_FRACTION,
+                    steps=constants.PREDICTION_STEPS,
                 )
             self._last_predictive_update_t = t
 
     def draw(self, surface: pygame.Surface) -> None:
         """Dispatch draw calls to Renderer and draw UI overlays.
 
+        Args:
+            surface: The Pygame surface to draw on.
+
         Returns:
             None
         """
-        surface.fill((0, 0, 0))
+        surface.fill(constants.COLOR_BLACK)
 
         all_body_names = self.simulation.bodies.list_bodies()
         t_sim = self.simulation.clock.get_time()
@@ -273,13 +313,19 @@ class SimulationScene(Scene):
             for name, path in self._predictive_paths.items():
                 self.renderer.draw_predictive_trail(surface, name, path)
 
-        font = _get_font("Arial", 18)
-        time_surf = font.render(f"Time: {t_sim:.2f}", True, (255, 255, 255))
-        rate_surf = font.render(f"Rate: {rate:.1f}x", True, (255, 255, 255))
+        font = _get_font("Arial", constants.FONT_SIZE_UI)
+        time_surf = font.render(f"Time: {t_sim:.2f}", True, constants.COLOR_WHITE)
+        rate_surf = font.render(f"Rate: {rate:.1f}x", True, constants.COLOR_WHITE)
 
-        surface.blit(time_surf, (10, 10))
-        surface.blit(rate_surf, (10, 30))
+        surface.blit(time_surf, (constants.UI_MARGIN_X, constants.UI_MARGIN_Y))
+        surface.blit(
+            rate_surf,
+            (constants.UI_MARGIN_X, constants.UI_MARGIN_Y + constants.UI_SPACING_Y),
+        )
 
         if self.is_paused:
-            pause_surf = font.render("PAUSED", True, (255, 100, 100))
-            surface.blit(pause_surf, (surface.get_width() - 80, 10))
+            pause_surf = font.render("PAUSED", True, constants.COLOR_PAUSE)
+            surface.blit(
+                pause_surf,
+                (surface.get_width() - constants.PAUSE_X_OFFSET, constants.UI_MARGIN_Y),
+            )

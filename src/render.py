@@ -1,6 +1,7 @@
 # CHANGELOG:
 # - Sprint 5: Implement Renderer class for Pygame-based visualization.
 # - Sprint 6: Implement exponential trail decay and glowing orbit paths.
+# - Sprint 6: Implement density-aware asteroid cloud rendering, sprite caching, and adaptive orbit sampling.
 
 """Pygame-specific drawing routines for bodies, orbits, and trails."""
 
@@ -19,7 +20,7 @@ from src.scaling import (
 )
 from src.frames import Frame
 from src.trail import Trail
-from src.scaling_constants import MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
+from src import constants
 
 
 class Renderer:
@@ -28,6 +29,7 @@ class Renderer:
     Attributes:
         simulation: The Simulation instance providing system state.
         viewport: The Viewport instance for coordinate transformations.
+        _sprite_cache: Cache for asteroid sprites to optimize rendering.
     """
 
     def __init__(self, simulation: Simulation, viewport: Viewport) -> None:
@@ -95,7 +97,7 @@ class Renderer:
             actual_pos = state[name]
 
             # 1. LOD for Trails
-            if zoom > 2.0 and name in trails:
+            if zoom > constants.LOD_ZOOM_THRESHOLD and name in trails:
                 self.draw_trail(surface, name, trails[name])
 
             # 2. Coordinate Mapping
@@ -106,7 +108,10 @@ class Renderer:
             body_data = self.simulation.bodies.get_body(name)
             radius_km = body_data["radius"]
             radius_px = log_scale_size(
-                radius_km, MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
+                radius_km,
+                constants.MIN_BODY_PIXELS,
+                constants.MAX_BODY_PIXELS,
+                constants.LOG_BASE_SIZE,
             )
             sprite = self._get_asteroid_sprite(body_data["color"], int(radius_px))
 
@@ -138,7 +143,10 @@ class Renderer:
 
         radius_km = body_data["radius"]
         radius_px = log_scale_size(
-            radius_km, MIN_BODY_PIXELS, MAX_BODY_PIXELS, LOG_BASE_SIZE
+            radius_km,
+            constants.MIN_BODY_PIXELS,
+            constants.MAX_BODY_PIXELS,
+            constants.LOG_BASE_SIZE,
         )
 
         color = body_data["color"]
@@ -180,7 +188,13 @@ class Renderer:
         # Adaptive Sampling based on screen-space circumference
         # Approx circumference: 2 * pi * sqrt((a^2 + b^2) / 2)
         circumference_px = 2 * math.pi * math.sqrt((a_v**2 + b_v**2) / 2.0)
-        num_points = max(64, min(1024, int(circumference_px / 5.0)))
+        num_points = max(
+            constants.MIN_ORBIT_POINTS,
+            min(
+                constants.MAX_ORBIT_POINTS,
+                int(circumference_px / constants.ADAPTIVE_SAMPLING_DIVISOR),
+            ),
+        )
 
         points = []
         cos_o = math.cos(orientation)
@@ -204,15 +218,34 @@ class Renderer:
 
         # Multi-pass Glow Rendering
         # Pass 1: Outer glow (Wide, low alpha)
-        glow_color_1 = (base_color[0], base_color[1], base_color[2], 32)
-        pygame.draw.lines(surface, glow_color_1, True, points, width=3)
+        glow_color_1 = (
+            base_color[0],
+            base_color[1],
+            base_color[2],
+            constants.ORBIT_GLOW_ALPHA_OUTER,
+        )
+        pygame.draw.lines(
+            surface, glow_color_1, True, points, width=constants.ORBIT_GLOW_WIDTH_OUTER
+        )
 
         # Pass 2: Inner glow (Medium, medium alpha)
-        glow_color_2 = (base_color[0], base_color[1], base_color[2], 64)
-        pygame.draw.lines(surface, glow_color_2, True, points, width=2)
+        glow_color_2 = (
+            base_color[0],
+            base_color[1],
+            base_color[2],
+            constants.ORBIT_GLOW_ALPHA_INNER,
+        )
+        pygame.draw.lines(
+            surface, glow_color_2, True, points, width=constants.ORBIT_GLOW_WIDTH_INNER
+        )
 
         # Pass 3: Anti-aliased Core (1px, high alpha)
-        core_color = (base_color[0], base_color[1], base_color[2], 128)
+        core_color = (
+            base_color[0],
+            base_color[1],
+            base_color[2],
+            constants.ORBIT_CORE_ALPHA,
+        )
         pygame.gfxdraw.aapolygon(surface, points, core_color)
 
     def draw_trail(self, surface: pygame.Surface, body_name: str, trail: Trail) -> None:
@@ -235,11 +268,11 @@ class Renderer:
         body_data = self.simulation.bodies.get_body(body_name)
         base_color = body_data["color"]
 
-        # Calculate exponential decay constant k such that alpha_min = 5.0
-        alpha_min = 5.0
+        # Calculate exponential decay constant k such that alpha_min = constants.TRAIL_ALPHA_MIN
+        alpha_min = constants.TRAIL_ALPHA_MIN
         # alpha = 255 * exp(-k * distance_from_head)
         # 5 = 255 * exp(-k * (N-1)) => k = ln(255/5) / (N-1)
-        k = math.log(255.0 / alpha_min) / (num_points - 1)
+        k = math.log(constants.TRAIL_ALPHA_MAX / alpha_min) / (num_points - 1)
 
         # Use a consistent frame context for all points in the trail
         # to ensure they are mapped relative to the same reference frame.
@@ -254,7 +287,7 @@ class Renderer:
             # i+1 is the index of the 'head' of the current segment
             # Newest point in trail is at index num_points - 1
             distance_from_head = (num_points - 1) - (i + 1)
-            alpha = int(255 * math.exp(-k * distance_from_head))
+            alpha = int(constants.TRAIL_ALPHA_MAX * math.exp(-k * distance_from_head))
             color = (base_color[0], base_color[1], base_color[2], alpha)
 
             pygame.gfxdraw.line(
@@ -281,8 +314,13 @@ class Renderer:
         t = self.simulation.clock.t_sim
         body_data = self.simulation.bodies.get_body(body_name)
         base_color = body_data["color"]
-        # Semi-transparent color for the predictive trail (alpha=100)
-        trail_color = (base_color[0], base_color[1], base_color[2], 100)
+        # Semi-transparent color for the predictive trail
+        trail_color = (
+            base_color[0],
+            base_color[1],
+            base_color[2],
+            constants.PREDICTION_ALPHA,
+        )
 
         # Use the current body's frame context for consistent mapping
         frame_context = Frame(body_name, t)
