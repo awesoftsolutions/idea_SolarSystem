@@ -4,12 +4,17 @@
 """Orbital mechanics engine for deterministic Keplerian motion."""
 
 import math
+from typing import Callable, Optional
 
 from src.constants import MAX_ITERATIONS, SOLVER_TOLERANCE
 from src.vector import Vec2
 
 
-def solve_kepler(mean_anomaly: float, eccentricity: float) -> float:
+def solve_kepler(
+    mean_anomaly: float,
+    eccentricity: float,
+    iteration_callback: Optional[Callable[[int], None]] = None,
+) -> float:
     """Solve the transcendental Kepler equation M = E - e*sin(E) for E.
 
     Uses Newton-Raphson iteration to find the eccentric anomaly given the
@@ -18,6 +23,7 @@ def solve_kepler(mean_anomaly: float, eccentricity: float) -> float:
     Args:
         mean_anomaly: The mean anomaly (M) in radians.
         eccentricity: The orbital eccentricity (e).
+        iteration_callback: Optional callback receiving the iteration count.
 
     Returns:
         The eccentric anomaly (E) in radians.
@@ -40,13 +46,17 @@ def solve_kepler(mean_anomaly: float, eccentricity: float) -> float:
     else:
         eccentric_anomaly = math.pi
 
+    iterations = 0
     for _ in range(max_iter):
+        iterations += 1
         f_e = eccentric_anomaly - e * math.sin(eccentric_anomaly) - m
         f_prime_e = 1 - e * math.cos(eccentric_anomaly)
         delta = f_e / f_prime_e
         eccentric_anomaly -= delta
 
         if abs(delta) < tol:
+            if iteration_callback is not None:
+                iteration_callback(iterations)
             return eccentric_anomaly
 
     raise RuntimeError("ERR-001: SOLVER_CONVERGENCE_FAILURE")
