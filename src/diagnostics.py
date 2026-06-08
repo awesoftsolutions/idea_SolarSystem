@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 5: Implement Diagnostics class for performance and solver monitoring.
+# - Sprint 7: Centralize diagnostic constants and optimize performance tracking.
 
 """Diagnostic infrastructure for solver convergence and performance monitoring."""
 

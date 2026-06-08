@@ -48,3 +48,8 @@ poetry run pytest
 - `F`: Toggle predictive orbit previews.
 - `D`: Toggle diagnostics overlay.
 - `Escape`: Close the window gracefully.
+
+
+# Favur Recording
+
+[![Watch the demo](https://img.youtube.com/vi/tmjwE6Ax8Sc/maxresdefault.jpg)](https://www.youtube.com/watch?v=tmjwE6Ax8Sc)

@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 5: Implement main application entry point, event loop, and input validation.
+# - Sprint 7: Centralize UI constants and integrate optimized renderer.
 
 """Main entry point for the solar system simulation.
 

@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 1: Implement immutable Vec2 library with arithmetic and geometric operations.
+# - Sprint 3: Update equality comparison to use SOLVER_TOLERANCE.
 
 """Immutable 2D vector math for deterministic physics."""
 

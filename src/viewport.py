@@ -1,5 +1,6 @@
 # CHANGELOG:
 # - Sprint 3: Implement Viewport class and coordinate transformations.
+# - Sprint 4: Refactor for Dependency Injection and local caching.
 
 """Viewport configuration and coordinate transformations."""
 

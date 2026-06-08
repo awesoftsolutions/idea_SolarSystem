@@ -62,9 +62,7 @@ def test_trail_frame_consistency(mock_bodies):
     surface = MagicMock(spec=pygame.Surface)
 
     # Mock map_to_screen to capture the frame_context passed to it
-    with patch("src.render.map_to_screen") as mock_map, patch(
-        "pygame.gfxdraw.line"
-    ):
+    with patch("src.render.map_to_screen") as mock_map, patch("pygame.gfxdraw.line"):
         mock_map.return_value = Vec2(50, 50)
         renderer.draw_trail(surface, "Moon", trail)
 
@@ -92,9 +90,7 @@ def test_simulation_cache_reuse(mock_bodies):
     sim = Simulation(clock, mock_bodies)
 
     # 1. Verify existence in __init__
-    assert hasattr(
-        sim, "_tick_cache"
-    ), "Simulation should have a _tick_cache attribute"
+    assert hasattr(sim, "_tick_cache"), "Simulation should have a _tick_cache attribute"
     assert isinstance(sim._tick_cache, dict)
 
     initial_cache_id = id(sim._tick_cache)
